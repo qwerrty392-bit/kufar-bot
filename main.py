@@ -11,7 +11,7 @@ import telebot
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8753909204:AAGnIOE6RgjaNE-sWijg22I-N6c6aktFCmY"
+BOT_TOKEN = "8753909204:AAGNuySGiuV503IUH0NkapggdkoK-Pkj5D8"
 
 SEARCH_QUERIES = [
     "205/55 R16",
