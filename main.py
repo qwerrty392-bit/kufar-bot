@@ -153,30 +153,44 @@ def kufar_scanner():
     seen_ids = load_seen_ids()
     print(f"🚀 Сканнер запущен! Ищем размеры: {', '.join(SEARCH_QUERIES)}")
 
+    # Сразу при запуске проверяем и отправляем ВСЕ новые объявления
+    print("🔍 Первичная проверка Куфара (отправляем все новые)...")
+    check_and_send_new_ads(seen_ids)
+
+    # Затем продолжаем проверять каждые 60 секунд
     while True:
-        for query in SEARCH_QUERIES:
-            ads = fetch_ads(query)
-            for ad in reversed(ads):
-                ad_id = str(ad.get("ad_id"))
-                if ad_id not in seen_ids:
-                    title = ad.get("subject", "")
-
-                    # Исключаем лето
-                    if "летн" in title.lower() or "лето" in title.lower():
-                        seen_ids.add(ad_id)
-                        continue
-
-                    price_raw = ad.get("price_byn")
-                    price = f"{int(price_raw)/100:.2f} BYN" if price_raw else "Договорная"
-                    link = ad.get("ad_link")
-                    img = ad.get("images", [])
-                    photo = f"https://yams.kufar.by/v1/transform/v1/m/id/{img[0]['path']}?rule=gallery" if img else None
-
-                    # Отправляем ВСЕМ
-                    broadcast_telegram(title, price, link, photo)
-                    seen_ids.add(ad_id)
-                    save_seen_ids(seen_ids)
         time.sleep(CHECK_INTERVAL)
+        print(f"⏰ Проверка №... (каждые {CHECK_INTERVAL} сек)")
+        check_and_send_new_ads(seen_ids)
+
+def check_and_send_new_ads(seen_ids):
+    """Проверяет Kufar и отправляет все новые объявления"""
+    for query in SEARCH_QUERIES:
+        ads = fetch_ads(query)
+        print(f"   По запросу '{query}' найдено объявлений: {len(ads)}")
+        for ad in reversed(ads):
+            ad_id = str(ad.get("ad_id"))
+            if ad_id not in seen_ids:
+                title = ad.get("subject", "")
+
+                # Исключаем лето
+                if "летн" in title.lower() or "лето" in title.lower():
+                    seen_ids.add(ad_id)
+                    continue
+
+                price_raw = ad.get("price_byn")
+                price = f"{int(price_raw)/100:.2f} BYN" if price_raw else "Договорная"
+                link = ad.get("ad_link")
+                img = ad.get("images", [])
+                photo = f"https://yams.kufar.by/v1/transform/v1/m/id/{img[0]['path']}?rule=gallery" if img else None
+
+                print(f"🆕 НОВОЕ: {title} - {price} - {link}")
+                # Отправляем ВСЕМ
+                broadcast_telegram(title, price, link, photo)
+                seen_ids.add(ad_id)
+                save_seen_ids(seen_ids)
+
+    print("✅ Проверка завершена")
 
 # ================= Запуск =================
 if __name__ == "__main__":
