@@ -26,7 +26,7 @@ SEEN_ADS_FILE = "seen_ads.json"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- 1. ЗАПУСК HTTP-СЕРВЕРА ДЛЯ RENDER (чтобы не падало с ошибкой Failed) ---
+# --- 1. ЗАПУСК HTTP-СЕРВЕРА ДЛЯ RENDER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -35,7 +35,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Telegram Bot is active!")
 
     def log_message(self, format, *args):
-        return  # Отключаем спам в консоль от веб-сервера
+        return
 
 def start_health_server():
     port = int(os.environ.get("PORT", 10000))
@@ -43,7 +43,7 @@ def start_health_server():
     logging.info(f"Веб-сервер запущен на порту {port}")
     server.serve_forever()
 
-# --- 2. РАБОТА С ФАЙЛАМИ ХРАНЕНИЯ (ПОДПИСЧИКИ И ОБЪЯВЛЕНИЯ) ---
+# --- 2. РАБОТА С ФАЙЛАМИ ХРАНЕНИЯ ---
 def load_data(filename, default):
     if os.path.exists(filename):
         try:
@@ -63,16 +63,17 @@ def save_data(filename, data):
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
 
-# --- 3. ПАРСИНГ KUFAR ---
+# --- 3. ПАРСИНГ KUFAR (ТОЛЬКО МИНСК) ---
 def fetch_kufar_ads(query):
-    """Запрос объявлений к официальному API Куфар"""
+    """Запрос объявлений к официальному API Куфар по Минску"""
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
         "cat": "2010",      # Категория: Шины
         "query": query,     # Поисковый запрос
         "lang": "ru",
         "size": "30",       # Размер выборки
-        "cmp": "0"          # Только частные лица (cmp=0)
+        "cmp": "0",         # Только частные лица (cmp=0)
+        "rgn": "7"          # 👈 ТОЛЬКО МИНСК
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -100,20 +101,18 @@ def fetch_kufar_ads(query):
             params_list = ad.get("ad_parameters", [])
             param_dict = {}
             for p in params_list:
-                pl = p.get("pl", "").lower() # название параметра
-                vl = str(p.get("vl", "")).lower() # значение параметра
+                pl = p.get("pl", "").lower()
+                vl = str(p.get("vl", "")).lower()
                 p_id = p.get("p", "")
                 param_dict[p_id] = vl
                 param_dict[pl] = vl
 
             # 2. Фильтр: Б/У (Исключаем 'новое')
-            # В Kufar "condition": "2" или "б/у"
             condition_val = str(param_dict.get("condition", "")) + str(param_dict.get("состояние", ""))
             if "нов" in condition_val:
                 continue
 
             # 3. Фильтр: Зимние шины
-            # В Kufar "tyre_type" / "сезонность": содержит "зим"
             season_val = str(param_dict.get("tyre_type", "")) + str(param_dict.get("сезонность", "")) + ad.get("subject", "").lower()
             if "зим" not in season_val:
                 continue
@@ -157,9 +156,10 @@ def check_kufar_loop():
                             
                             # Сообщение для отправки
                             message_text = (
-                                f"❄️ **Новое объявление [{ad['query']}]**\n\n"
+                                f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
                                 f"📌 **{ad['title']}**\n"
                                 f"💰 **Цена:** {ad['price']}\n"
+                                f"📍 **Город:** Минск\n"
                                 f"👤 **Продавец:** Частное лицо (б/у)\n\n"
                                 f"🔗 [Открыть на Kufar]({ad['link']})"
                             )
@@ -171,7 +171,7 @@ def check_kufar_loop():
                                 except Exception as err:
                                     logging.error(f"Не удалось отправить пользователю {user_id}: {err}")
                     
-                    time.sleep(2)  # Небольшая пауза между запросами разных типоразмеров
+                    time.sleep(2)
         except Exception as e:
             logging.error(f"Ошибка в цикле мониторинга: {e}")
             
@@ -187,7 +187,7 @@ def send_welcome(message):
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
-        f"Вы успешно **подписались** на уведомления о б/у зимних шинах от частных лиц.\n\n"
+        f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске** от частных лиц.\n\n"
         f"🔍 **Отслеживаемые размеры:**\n{queries_str}\n\n"
         f"Бот проверяет Kufar каждые 60 секунд и сразу пришлет новые варианты!"
     )
@@ -207,6 +207,7 @@ def stop_subscription(message):
 def status_info(message):
     text = (
         f"📊 **Статус бота:**\n"
+        f"📍 Регион: г. Минск\n"
         f"👥 Подписчиков: {len(subscribers)}\n"
         f"📦 Обработано объявлений: {len(seen_ads)}\n"
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
