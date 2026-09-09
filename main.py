@@ -246,6 +246,9 @@ if __name__ == "__main__":
 
     # Запускаем сканнер в отдельном потоке
     Thread(target=kufar_scanner, daemon=True).start()
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    ...
 
     # Запускаем Flask (вебхук)
     app.run(host='0.0.0.0', port=8080)
