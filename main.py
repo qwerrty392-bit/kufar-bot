@@ -6,7 +6,7 @@ from threading import Thread
 from flask import Flask, request
 
 # ================= НАСТРОЙКИ БОТА =================
-TELEGRAM_BOT_TOKEN = "8970830553:AAHe18Q2bf0cIAkVRw9YFgpzoR_3e_PecwE"
+TELEGRAM_BOT_TOKEN = "8753909204:AAF_6L3vePZsAYVmY0Ie1LTVdik7nq85Wpw"
 
 # Список моделей для поиска (добавляй новые через запятую в кавычках)
 SEARCH_QUERIES = [
