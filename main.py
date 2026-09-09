@@ -5,14 +5,14 @@ import requests
 from threading import Thread
 from flask import Flask, request
 
-# ================= ТОЛЬКО ТОКЕН БОТА =================
+# ================= НАСТРОЙКИ БОТА =================
 TELEGRAM_BOT_TOKEN = "8970830553:AAHe18Q2bf0cIAkVRw9YFgpzoR_3e_PecwE"
 
 # Список моделей для поиска (добавляй новые через запятую в кавычках)
 SEARCH_QUERIES = [
     "205/55 R16",
     "195/65 R15",
-    "185/65/ R15",
+    "185/65 R15",
     "205/65 R16"
 ]
 
@@ -26,7 +26,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Бот активен и рассылает объявления всем пользователям!"
+    return "Бот @Tires2026Bot активен и рассылает объявления!"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -63,6 +63,38 @@ def webhook():
                     "text": "✅ Вы уже подписаны на уведомления!",
                     "parse_mode": "HTML"
                 })
+
+        elif chat_id and text == "/stop":
+            users = load_users()
+            if chat_id in users:
+                users.remove(chat_id)
+                save_users(users)
+                print(f"➖ Пользователь отписался: {chat_id}")
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={
+                    "chat_id": chat_id,
+                    "text": "🚫 Вы отписались от уведомлений. Чтобы подписаться снова, напишите /start",
+                    "parse_mode": "HTML"
+                })
+            else:
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={
+                    "chat_id": chat_id,
+                    "text": "❌ Вы и так не подписаны.",
+                    "parse_mode": "HTML"
+                })
+
+        elif chat_id and text == "/help":
+            help_text = (
+                "🤖 <b>Команды бота:</b>\n\n"
+                "/start - Подписаться на уведомления\n"
+                "/stop - Отписаться от уведомлений\n"
+                "/help - Помощь"
+            )
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={
+                "chat_id": chat_id,
+                "text": help_text,
+                "parse_mode": "HTML"
+            })
+
     except Exception as e:
         print(f"Ошибка обработки вебхука: {e}")
 
@@ -160,7 +192,7 @@ def kufar_scanner():
     # Затем продолжаем проверять каждые 60 секунд
     while True:
         time.sleep(CHECK_INTERVAL)
-        print(f"⏰ Проверка №... (каждые {CHECK_INTERVAL} сек)")
+        print(f"⏰ Проверка... (каждые {CHECK_INTERVAL} сек)")
         check_and_send_new_ads(seen_ids)
 
 def check_and_send_new_ads(seen_ids):
@@ -192,10 +224,28 @@ def check_and_send_new_ads(seen_ids):
 
     print("✅ Проверка завершена")
 
+# ================= Настройка команд бота =================
+def set_bot_commands():
+    """Устанавливает список команд для бота"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setMyCommands"
+    commands = [
+        {"command": "start", "description": "Подписаться на уведомления"},
+        {"command": "stop", "description": "Отписаться от уведомлений"},
+        {"command": "help", "description": "Помощь"}
+    ]
+    try:
+        requests.post(url, json={"commands": commands})
+        print("✅ Команды бота установлены: /start, /stop, /help")
+    except Exception as e:
+        print(f"❌ Ошибка установки команд: {e}")
+
 # ================= Запуск =================
 if __name__ == "__main__":
-    # 1. Запускаем сканнер в отдельном потоке
+    # Устанавливаем команды для бота
+    set_bot_commands()
+
+    # Запускаем сканнер в отдельном потоке
     Thread(target=kufar_scanner, daemon=True).start()
 
-    # 2. Запускаем Flask (вебхук)
+    # Запускаем Flask (вебхук)
     app.run(host='0.0.0.0', port=8080)
