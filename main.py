@@ -51,7 +51,7 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
-  save_data(SEEN_ADS_FILE, [])  # Закомментировано — база не очищается
+save_data(SEEN_ADS_FILE, [])  # ВРЕМЕННАЯ ОЧИСТКА БАЗЫ (УБРАТЬ ПОСЛЕ ТЕСТА)
 
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
@@ -105,7 +105,7 @@ def fetch_kufar_ads(query):
             if "летн" in all_text and "зим" not in all_text:
                 continue
 
-            # 4. Фильтр: Цена до 200 BYN (проверка в коде)
+            # 4. Фильтр: Цена до 200 BYN
             price_byn = ad.get("price_byn", "0")
             try:
                 price_int = int(price_byn) // 100
