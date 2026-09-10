@@ -13,8 +13,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
-
-# URL вашего сервиса на Render
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
 
 SEARCH_QUERIES = [
@@ -24,10 +22,10 @@ SEARCH_QUERIES = [
     "185/65 R15"
 ]
 
-CHECK_INTERVAL = 300  # Проверка каждые 5 минут
+CHECK_INTERVAL = 300  # 5 минут
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
-MAX_PRICE_BYN = 200  # Максимальная цена в BYN
+MAX_PRICE_BYN = 200
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -56,20 +54,19 @@ seen_ads = set(load_data(SEEN_ADS_FILE, []))
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
-        "cat": "2010",      # Категория: Шины
-        "query": query,     # Поисковый запрос
+        "cat": "2010",
+        "query": query,
         "lang": "ru",
-        "size": "50",       # Умеренное значение
-        "cmp": "0",         # Только частные лица (не компании)
-        "rgn": "7",         # Минск
-        "sort": "lst.d"     # Сначала новые
+        "size": "50",
+        "cmp": "0",
+        "rgn": "7",
+        "sort": "lst.d"
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     found_ads = []
-    
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code != 200:
@@ -83,28 +80,21 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # 1. Проверка: Только частные лица (не компании)
             if ad.get("company_ad", False):
                 continue
 
             title = ad.get("subject", "Шины")
-            
-            # Собираем текстовые параметры
             params_list = ad.get("ad_parameters", [])
             all_text = title.lower()
             for p in params_list:
                 all_text += " " + str(p.get("pl", "")).lower()
                 all_text += " " + str(p.get("vl", "")).lower()
 
-            # 2. Фильтр: Б/У (Исключаем только новое)
             if "новое" in all_text or "нов." in all_text:
                 continue
-
-            # 3. Фильтр: Зимние шины (Исключаем строго летние)
             if "летн" in all_text and "зим" not in all_text:
                 continue
 
-            # 4. Фильтр: Цена до 200 BYN
             price_byn = ad.get("price_byn", "0")
             try:
                 price_int = int(price_byn) // 100
@@ -123,7 +113,6 @@ def fetch_kufar_ads(query):
                 "link": ad_link,
                 "query": query
             })
-
     except Exception as e:
         logging.error(f"Ошибка при парсинге Куфара ({query}): {e}")
 
@@ -134,10 +123,15 @@ def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
 
     while True:
-        # ВРЕМЕННАЯ ОЧИСТКА БАЗЫ ПРИ КАЖДОМ ЦИКЛЕ (ЧТОБЫ ПОЛУЧИТЬ УВЕДОМЛЕНИЯ)
+        # ВРЕМЕННАЯ ОЧИСТКА БАЗЫ ДЛЯ ТЕСТА
         seen_ads.clear()
         save_data(SEEN_ADS_FILE, [])
-        logging.info("База seen_ads очищена для теста")
+        logging.info(f"База очищена. Подписчиков в памяти: {len(subscribers)}")
+        
+        # ПРИНУДИТЕЛЬНО ПЕРЕЧИТЫВАЕМ ФАЙЛ ПОДПИСЧИКОВ
+        subscribers.clear()
+        subscribers.update(load_data(USERS_FILE, []))
+        logging.info(f"Подписчиков после перечитки файла: {len(subscribers)}")
 
         try:
             for query in SEARCH_QUERIES:
@@ -160,10 +154,13 @@ def check_kufar_loop():
                             
                             for user_id in list(subscribers):
                                 try:
+                                    logging.info(f"ПОПЫТКА отправки {user_id}: {ad['title']}")
                                     bot.send_message(user_id, message_text, parse_mode="Markdown")
-                                    logging.info(f"Уведомление отправлено {user_id}: {ad['title']}")
+                                    logging.info(f"✅ УСПЕШНО отправлено {user_id}: {ad['title']}")
                                 except Exception as err:
-                                    logging.error(f"Не удалось отправить {user_id}: {err}")
+                                    logging.error(f"❌ ОШИБКА отправки {user_id}: {err}")
+                        else:
+                            logging.warning(f"❌ Нет подписчиков для отправки: {ad['title']}")
                 
                 time.sleep(2)
 
@@ -178,6 +175,7 @@ def send_welcome(message):
     user_id = message.chat.id
     subscribers.add(user_id)
     save_data(USERS_FILE, list(subscribers))
+    logging.info(f"Новый подписчик: {user_id}. Всего: {len(subscribers)}")
     
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
@@ -212,7 +210,7 @@ def status_info(message):
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
-# --- 5. ВЕБХУК ДЛЯ TELEGRAM ---
+# --- 5. ВЕБХУК ---
 @app.route(f"/{BOT_TOKEN}", methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
