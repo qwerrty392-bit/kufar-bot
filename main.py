@@ -13,7 +13,7 @@ import telebot
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8753909204:AAHIDp2lV4OxPz0hnJcMf2LEWJsNpwq4WVk")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8753909204:AAFO5nIkWctl0pT07vyBczV8l4HyNE1Cst0")
 
 # Отслеживаемые размеры шин
 TARGET_SIZES = [
