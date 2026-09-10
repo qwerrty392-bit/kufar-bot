@@ -51,7 +51,6 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
-save_data(SEEN_ADS_FILE, [])  # ВРЕМЕННАЯ ОЧИСТКА БАЗЫ (УБРАТЬ ПОСЛЕ ТЕСТА)
 
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
@@ -135,6 +134,11 @@ def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
 
     while True:
+        # ВРЕМЕННАЯ ОЧИСТКА БАЗЫ ПРИ КАЖДОМ ЦИКЛЕ (ЧТОБЫ ПОЛУЧИТЬ УВЕДОМЛЕНИЯ)
+        seen_ads.clear()
+        save_data(SEEN_ADS_FILE, [])
+        logging.info("База seen_ads очищена для теста")
+
         try:
             for query in SEARCH_QUERIES:
                 ads = fetch_kufar_ads(query)
