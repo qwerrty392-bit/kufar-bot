@@ -11,7 +11,7 @@ import telebot
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4"
+BOT_TOKEN = "8753909204:AAG-5UWmOZQsuzO628WnHi972NgvEY3JumA"
 
 SEARCH_QUERIES = [
     "205/55 R16",
@@ -26,7 +26,7 @@ SEEN_ADS_FILE = "seen_ads.json"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- 1. ЗАПУСК ВЕБ-СЕРВЕРА ДЛЯ RENDER (Защита от падений) ---
+# --- 1. ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -46,7 +46,7 @@ def start_health_server():
     except Exception as e:
         logging.error(f"HTTP Server Error: {e}")
 
-# --- 2. РАБОТА С ХРАНИЛИЩЕМ ДАННЫХ ---
+# --- 2. ХРАНИЛИЩЕ ДАННЫХ ---
 def load_data(filename, default):
     if os.path.exists(filename):
         try:
@@ -66,16 +66,18 @@ def save_data(filename, data):
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
 
-# --- 3. ПАРСИНГ KUFAR (Только Минск, Б/У, Зима, Частные лица) ---
+# --- 3. УЛУЧШЕННЫЙ ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
-        "cat": "2010",      # Шины
-        "query": query,     # Поисковый запрос
+        "cat": "2010",      # Категория: Шины
+        "query": query,     # Поисковый размер
         "lang": "ru",
-        "size": "30",       # Размер выборки
+        "size": "30",
         "cmp": "0",         # Только частные лица
-        "rgn": "7"          # Только г. Минск
+        "rgn": "7",         # Минск
+        "cnd": "2",         # Б/У
+        "sort": "lst.d"     # 👈 СОРТИРОВКА: Сначала самые свежие!
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -95,31 +97,25 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # Фильтр: Исключаем компании
+            # Исключаем компании/магазины
             if ad.get("company_ad", False):
                 continue
 
-            # Парсинг параметров
+            title = ad.get("subject", "Шины")
+            
+            # Собираем всю текстовую информацию для проверки на "зима"
             params_list = ad.get("ad_parameters", [])
-            param_dict = {}
+            all_text = title.lower()
             for p in params_list:
-                pl = p.get("pl", "").lower()
-                vl = str(p.get("vl", "")).lower()
-                p_id = p.get("p", "")
-                param_dict[p_id] = vl
-                param_dict[pl] = vl
+                all_text += " " + str(p.get("pl", "")).lower()
+                all_text += " " + str(p.get("vl", "")).lower()
 
-            # Фильтр: Исключаем новые (только Б/У)
-            condition_val = str(param_dict.get("condition", "")) + str(param_dict.get("состояние", ""))
-            if "нов" in condition_val:
+            # Фильтр на Зимние шины (проверка слова или кода категории Kufar)
+            # Если в объявлении упоминаются летние шины без слова "зим" - пропускаем
+            if "летн" in all_text and "зим" not in all_text:
                 continue
 
-            # Фильтр: Только зимняя резина
-            season_val = str(param_dict.get("tyre_type", "")) + str(param_dict.get("сезонность", "")) + ad.get("subject", "").lower()
-            if "зим" not in season_val:
-                continue
-
-            # Цена и ссылка
+            # Цена
             price_byn = ad.get("price_byn", "0")
             try:
                 price = f"{int(price_byn) // 100} BYN"
@@ -127,7 +123,6 @@ def fetch_kufar_ads(query):
                 price = "Цена не указана"
 
             ad_link = ad.get("ad_link", f"https://www.kufar.by/item/{ad_id}")
-            title = ad.get("subject", "Шины")
 
             found_ads.append({
                 "id": ad_id,
@@ -142,9 +137,9 @@ def fetch_kufar_ads(query):
 
     return found_ads
 
-# --- 4. МОНИТОРИНГ В ФОНЕ ---
+# --- 4. ФОНОВЫЙ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
-    logging.info("Kufar scanner loop started...")
+    logging.info("Сканер Куфара запущен...")
     while True:
         try:
             if subscribers:
@@ -169,15 +164,15 @@ def check_kufar_loop():
                                 try:
                                     bot.send_message(user_id, message_text, parse_mode="Markdown")
                                 except Exception as err:
-                                    logging.error(f"Не удалось отправить пользователю {user_id}: {err}")
+                                    logging.error(f"Не удалось отправить {user_id}: {err}")
                     
                     time.sleep(2)
         except Exception as e:
-            logging.error(f"Ошибка в цикле сканера: {e}")
+            logging.error(f"Ошибка сканера: {e}")
             
         time.sleep(CHECK_INTERVAL)
 
-# --- 5. ТЕЛЕГРАМ КОМАНДЫ ---
+# --- 5. КОМАНДЫ БОТА ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.chat.id
@@ -187,9 +182,9 @@ def send_welcome(message):
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
-        f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске** (только частные лица).\n\n"
+        f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске**.\n\n"
         f"🔍 **Отслеживаемые размеры:**\n{queries_str}\n\n"
-        f"Бот проверяет Kufar каждые 60 секунд и пришлет вам новые варианты!"
+        f"Бот проверяет Kufar каждые 60 секунд!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -216,12 +211,7 @@ def status_info(message):
 
 # --- 6. ЗАПУСК ---
 if __name__ == "__main__":
-    # 1. Веб-сервер
     threading.Thread(target=start_health_server, daemon=True).start()
-    
-    # 2. Сканер Куфара
     threading.Thread(target=check_kufar_loop, daemon=True).start()
-    
-    # 3. Бот
-    logging.info("Starting Telegram bot polling...")
+    logging.info("Бот запущен!")
     bot.infinity_polling(skip_pending=True)
