@@ -5,13 +5,19 @@ import logging
 import threading
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from flask import Flask, request, abort
 import telebot
+from telebot import types
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
+BOT_TOKEN = "8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4"
+
+# ВАЖНО: URL вашего сервиса на Render (замените на свой!)
+# Он выглядит как https://kufar-bot-vpkb.onrender.com
+RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
 
 SEARCH_QUERIES = [
     "205/55 R16",
@@ -20,33 +26,14 @@ SEARCH_QUERIES = [
     "185/65 R15"
 ]
 
-CHECK_INTERVAL = 300  # Проверка каждые 5 минут (300 секунд)
+CHECK_INTERVAL = 300  # Проверка каждые 5 минут
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
 
 bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
 
-# --- 1. ВЕБ-СЕРВЕР ДЛЯ RENDER ---
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b"Telegram Bot is active!")
-
-    def log_message(self, format, *args):
-        return
-
-def start_health_server():
-    port = int(os.environ.get("PORT", 10000))
-    try:
-        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-        logging.info(f"Health check HTTP server started on port {port}")
-        server.serve_forever()
-    except Exception as e:
-        logging.error(f"HTTP Server Error: {e}")
-
-# --- 2. ХРАНИЛИЩЕ ДАННЫХ ---
+# --- 1. ХРАНИЛИЩЕ ДАННЫХ ---
 def load_data(filename, default):
     if os.path.exists(filename):
         try:
@@ -65,26 +52,25 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
-save_data(SEEN_ADS_FILE, [])  # <--- ВРЕМЕННАЯ ОЧИСТКА БАЗЫ (УБРАТЬ ПОСЛЕ ТЕСТА)
+# save_data(SEEN_ADS_FILE, [])  # <-- РАСКОММЕНТИРУЙТЕ ОДИН РАЗ ДЛЯ ОЧИСТКИ БАЗЫ
 
-# --- 3. ПАРСИНГ KUFAR ---
+# --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
-        "cat": "2010",      # Категория: Шины
-        "query": query,     # Поисковый запрос
+        "cat": "2010",
+        "query": query,
         "lang": "ru",
         "size": "30",
-        "cmp": "0",         # Только частные лица
-        "rgn": "7",         # Минск
-        "sort": "lst.d"     # Сначала новые
+        "cmp": "0",
+        "rgn": "7",
+        "sort": "lst.d"
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     found_ads = []
-    
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code != 200:
@@ -97,26 +83,22 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # --- ФИЛЬТРЫ ВРЕМЕННО ОТКЛЮЧЕНЫ ДЛЯ ТЕСТА ---
+            # --- ФИЛЬТРЫ (раскомментируйте, когда закончите тесты) ---
             # if ad.get("company_ad", False):
             #     continue
-
-            title = ad.get("subject", "Шины")
-            
+            # title = ad.get("subject", "Шины")
             # params_list = ad.get("ad_parameters", [])
             # all_text = title.lower()
             # for p in params_list:
             #     all_text += " " + str(p.get("pl", "")).lower()
             #     all_text += " " + str(p.get("vl", "")).lower()
-
             # if "новое" in all_text or "нов." in all_text:
             #     continue
-
             # if "летн" in all_text and "зим" not in all_text:
             #     continue
-            # --- КОНЕЦ ОТКЛЮЧЕННЫХ ФИЛЬТРОВ ---
+            # --- КОНЕЦ ФИЛЬТРОВ ---
 
-            # Цена
+            title = ad.get("subject", "Шины")
             price_byn = ad.get("price_byn", "0")
             try:
                 price = f"{int(price_byn) // 100} BYN"
@@ -132,16 +114,14 @@ def fetch_kufar_ads(query):
                 "link": ad_link,
                 "query": query
             })
-
     except Exception as e:
         logging.error(f"Ошибка при парсинге Куфара ({query}): {e}")
 
     return found_ads
 
-# --- 4. ФОНОВОЕ СКАНИРОВАНИЕ ---
+# --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
-
     while True:
         try:
             for query in SEARCH_QUERIES:
@@ -160,28 +140,23 @@ def check_kufar_loop():
                                 f"📍 **Город:** Минск\n\n"
                                 f"🔗 [Открыть на Kufar]({ad['link']})"
                             )
-                            
                             for user_id in list(subscribers):
                                 try:
                                     bot.send_message(user_id, message_text, parse_mode="Markdown")
                                     logging.info(f"Уведомление отправлено {user_id}: {ad['title']}")
                                 except Exception as err:
                                     logging.error(f"Не удалось отправить {user_id}: {err}")
-                
                 time.sleep(2)
-
         except Exception as e:
             logging.error(f"Ошибка сканера: {e}")
-            
         time.sleep(CHECK_INTERVAL)
 
-# --- 5. КОМАНДЫ БОТА ---
+# --- 4. КОМАНДЫ БОТА ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.chat.id
     subscribers.add(user_id)
     save_data(USERS_FILE, list(subscribers))
-    
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
@@ -212,18 +187,37 @@ def status_info(message):
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
+# --- 5. ВЕБХУК ДЛЯ TELEGRAM ---
+@app.route(f"/{BOT_TOKEN}", methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        abort(403)
+
+@app.route('/')
+def index():
+    return "Telegram Bot is active!", 200
 
 # --- 6. ЗАПУСК ---
 if __name__ == "__main__":
-    threading.Thread(target=start_health_server, daemon=True).start()
-
+    # Удаляем старый вебхук (на всякий случай)
     try:
-        bot.set_webhook(url=None)
-        print("Вебхук удалён")
+        bot.remove_webhook()
+        time.sleep(1)
+        # Устанавливаем новый вебхук
+        bot.set_webhook(url=f"{RENDER_EXTERNAL_URL}/{BOT_TOKEN}")
+        logging.info(f"Вебхук установлен: {RENDER_EXTERNAL_URL}/{BOT_TOKEN}")
     except Exception as e:
-        print(f"Ошибка сброса вебхука: {e}")
+        logging.error(f"Ошибка установки вебхука: {e}")
 
+    # Запускаем сканер Куфара в фоне
     threading.Thread(target=check_kufar_loop, daemon=True).start()
 
-    logging.info("Бот запущен!")
-    bot.infinity_polling(none_stop=True, skip_pending=True)
+    # Запускаем Flask-сервер (он будет слушать порт Render)
+    port = int(os.environ.get("PORT", 10000))
+    logging.info(f"Flask сервер запущен на порту {port}")
+    app.run(host="0.0.0.0", port=port)
