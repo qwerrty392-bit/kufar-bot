@@ -13,7 +13,7 @@ from telebot import types
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4"
+BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
 
 # ВАЖНО: URL вашего сервиса на Render (замените на свой!)
 # Он выглядит как https://kufar-bot-vpkb.onrender.com
