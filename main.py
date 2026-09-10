@@ -20,7 +20,7 @@ SEARCH_QUERIES = [
     "185/65 R15"
 ]
 
-CHECK_INTERVAL = 60  # Проверка каждые 60 секунд
+CHECK_INTERVAL = 300  # Проверка каждые 5 минут (300 секунд)
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
 
@@ -139,10 +139,9 @@ def fetch_kufar_ads(query):
 
     return found_ads
 
-# --- 4. ФОНОВЫЙ СКАНИРОВАНИЕ ---
+# --- 4. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
-    is_first_run = len(seen_ads) == 0
 
     while True:
         try:
@@ -154,8 +153,8 @@ def check_kufar_loop():
                         seen_ads.add(ad_id)
                         save_data(SEEN_ADS_FILE, list(seen_ads))
                         
-                        # Не отправляем уведомления при самом первом запуске базы
-                        if not is_first_run and subscribers:
+                        # Отправляем уведомление всем подписчикам
+                        if subscribers:
                             message_text = (
                                 f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
                                 f"📌 **{ad['title']}**\n"
@@ -168,12 +167,11 @@ def check_kufar_loop():
                             for user_id in list(subscribers):
                                 try:
                                     bot.send_message(user_id, message_text, parse_mode="Markdown")
+                                    logging.info(f"Уведомление отправлено {user_id}: {ad['title']}")
                                 except Exception as err:
                                     logging.error(f"Не удалось отправить {user_id}: {err}")
                 
-                time.sleep(2)
-            
-            is_first_run = False
+                time.sleep(2) # Пауза между запросами к Куфару
 
         except Exception as e:
             logging.error(f"Ошибка сканера: {e}")
@@ -192,7 +190,7 @@ def send_welcome(message):
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
         f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске**.\n\n"
         f"🔍 **Отслеживаемые размеры:**\n{queries_str}\n\n"
-        f"Бот проверяет Kufar каждые 60 секунд!"
+        f"Бот проверяет Kufar каждые 5 минут!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -216,22 +214,22 @@ def status_info(message):
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
     )
     bot.reply_to(message, text, parse_mode="Markdown")
+
+
+# --- 6. ЗАПУСК ---
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
 
     # Сброс вебхука перед запуском
     try:
-        bot.set_webhook(url=None) # Убираем старый вебхук (None вместо '')
+        bot.set_webhook(url=None)
         print("Вебхук удалён, конфликт устранён")
     except Exception as e:
         print(f"Ошибка сброса вебхука: {e}")
 
-    # Запуск с автоперезапуском
-    while True:
-        try:
-            threading.Thread(target=check_kufar_loop, daemon=True).start()
-            logging.info("Бот запущен!")
-            bot.infinity_polling(none_stop=True, skip_pending=True)
-        except Exception as e:
-            logging.error(f"Ошибка: {e}. Перезапуск через 10 секунд...")
-            time.sleep(10)
+    # Запуск сканера Куфара в фоне
+    threading.Thread(target=check_kufar_loop, daemon=True).start()
+
+    # Запуск слушателя Telegram (Polling)
+    logging.info("Бот запущен!")
+    bot.infinity_polling(none_stop=True, skip_pending=True)
