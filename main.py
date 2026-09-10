@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = "8753909204:AAGNuySGiuvSO3IUH0NkapggdkoK-Pkj5D8"
 
-# Нужные размеры шин (ширина, профиль, диаметр)
+# Нужные размеры шин
 TARGET_SIZES = [
     {"w": "205", "p": "55", "d": "16"},
     {"w": "195", "p": "65", "d": "15"},
@@ -28,7 +28,7 @@ SEEN_ADS_FILE = "seen_ads.json"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- 1. ЗАПУСК HTTP-СЕРВЕРА ДЛЯ RENDER ---
+# --- 1. HTTP-СЕРВЕР ДЛЯ RENDER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -45,7 +45,7 @@ def start_health_server():
     logging.info(f"HTTP-сервер запущен на порту {port}")
     server.serve_forever()
 
-# --- 2. РАБОТА С ФАЙЛАМИ ДАННЫХ ---
+# --- 2. РАБОТА С ДАННЫМИ ---
 def load_data(filename):
     if os.path.exists(filename):
         try:
@@ -65,31 +65,35 @@ def save_data(filename, data_set):
 subscribers = load_data(USERS_FILE)
 seen_ads = load_data(SEEN_ADS_FILE)
 
-# --- 3. ТЕЛЕГРАМ БОТ (ПОДПИСКА) ---
+# --- 3. ТЕЛЕГРАМ БОТ (ОТВЕТ НА /start) ---
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
-    chat_id = message.chat.id
-    if chat_id not in subscribers:
-        subscribers.add(chat_id)
-        save_data(USERS_FILE, subscribers)
-        logging.info(f"Новый подписчик: {chat_id}")
-    
-    sizes_str = ", ".join([f"{s['w']}/{s['p']} R{s['d']}" for s in TARGET_SIZES])
-    text = (
-        "👋 <b>Привет! Поиск шин запущен!</b>\n\n"
-        f"🔍 <b>Отслеживаемые размеры:</b> {sizes_str}\n"
-        "📍 <b>Фильтры:</b> г. Минск, Б/У, Частные лица, Зима, До 200 BYN.\n\n"
-        "Как только появится новое объявление — я сразу пришлю его сюда!"
-    )
-    bot.send_message(chat_id, text, parse_mode="HTML")
+    try:
+        chat_id = message.chat.id
+        logging.info(f"Получена команда /start от {chat_id}")
+        
+        if chat_id not in subscribers:
+            subscribers.add(chat_id)
+            save_data(USERS_FILE, subscribers)
+            logging.info(f"Добавлен новый подписчик: {chat_id}")
+        
+        sizes_str = ", ".join([f"{s['w']}/{s['p']} R{s['d']}" for s in TARGET_SIZES])
+        text = (
+            "👋 <b>Привет! Поиск шин запущен!</b>\n\n"
+            f"🔍 <b>Отслеживаемые размеры:</b> {sizes_str}\n"
+            "📍 <b>Фильтры:</b> г. Минск, Б/У, Частные лица, Зима, До 200 BYN.\n\n"
+            "Как только появится новое объявление — я сразу пришлю его сюда!"
+        )
+        bot.send_message(chat_id, text, parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"Ошибка в обработчике /start: {e}")
 
-# --- 4. УМНАЯ ПРОВЕРКА РАЗМЕРА ШИНЫ ---
+# --- 4. УМНАЯ ПРОВЕРКА РАЗМЕРА ---
 def matches_target_size(ad):
     title = ad.get("subject", "").lower()
     body = ad.get("body", "").lower()
     full_text = f"{title} {body}"
     
-    # Извлекаем параметры из Куфара (галочек)
     params = {}
     for p in ad.get("ad_parameters", []):
         p_name = p.get("p", "")
@@ -106,11 +110,9 @@ def matches_target_size(ad):
     for target in TARGET_SIZES:
         tw, tp, td = target["w"], target["p"], target["d"]
         
-        # 1. Проверка по официальным параметрам Куфара
         if params.get("w") == tw and params.get("p") == tp and params.get("d") == td:
             return f"{tw}/{tp} R{td}"
             
-        # 2. Проверка по разным вариантам написания в тексте (205/65r16, 205 65 16, 205/65/16)
         pattern = rf"\b{tw}[/ -.\\]+{tp}\b.*?\b(r|р)?{td}\b"
         if re.search(pattern, full_text):
             return f"{tw}/{tp} R{td}"
@@ -121,14 +123,14 @@ def matches_target_size(ad):
 def fetch_kufar_ads():
     url = "https://cre-api.kufar.by/v1/search/renditions/ad-list"
     params = {
-        "cat": "2010",       # Автомобильные шины
+        "cat": "2010",
         "size": 30,
-        "sort": "lst.d",     # Сначала новые
-        "cnd": "2",          # Только Б/У
-        "cmp": "0",          # Только частники
-        "rgn": "7",          # Только Минск
-        "prc": "r:0,20000",  # До 200 BYN (20000 копеек)
-        "ar_season": "2"     # Только Зимние
+        "sort": "lst.d",
+        "cnd": "2",          # Б/У
+        "cmp": "0",          # Частники
+        "rgn": "7",          # Минск
+        "prc": "r:0,20000",  # До 200 BYN
+        "ar_season": "2"     # Зима
     }
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
@@ -171,7 +173,6 @@ def check_kufar_loop():
                         f"🔗 <a href='{link}'>Открыть на Kufar</a>"
                     )
 
-                    # Рассылка всем подписчикам
                     for chat_id in list(subscribers):
                         try:
                             if photo_url:
@@ -189,14 +190,16 @@ def check_kufar_loop():
 
         time.sleep(CHECK_INTERVAL)
 
-# --- 6. ЗАПУСК ВСЕХ ПОТОКОВ ---
+# --- 6. ЗАПУСК ---
 if __name__ == "__main__":
-    # Запуск веб-сервера для Render
     threading.Thread(target=start_health_server, daemon=True).start()
-    
-    # Запуск сканирования Куфара
     threading.Thread(target=check_kufar_loop, daemon=True).start()
     
-    # Запуск обработки сообщений Телеграм (кнопка /start)
+    # Очищаем подвисшие обновления перед стартом
+    try:
+        bot.remove_webhook()
+    except:
+        pass
+
     logging.info("Телеграм-бот слушает команды...")
-    bot.infinity_polling()
+    bot.infinity_polling(skip_pending=True)
