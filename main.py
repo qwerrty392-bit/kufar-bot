@@ -14,11 +14,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 BOT_TOKEN = "8753909204:AAGNuySGiuV503IUH0NkapggdkoK-Pkj5D8"
 
 SEARCH_QUERIES = [
-    "205/55 R16",
+  "205/55 R16",
     "195/65 R15",
     "205/65 R16",
     "185/65 R15"
 ]
+
 
 CHECK_INTERVAL = 60  # Проверка каждые 60 секунд
 USERS_FILE = "subscribers.json"
