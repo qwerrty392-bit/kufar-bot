@@ -13,7 +13,7 @@ from telebot import types
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
+BOT_TOKEN = "8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4"
 
 # URL вашего сервиса на Render
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
@@ -25,7 +25,7 @@ SEARCH_QUERIES = [
     "185/65 R15"
 ]
 
-CHECK_INTERVAL = 300  # Проверка каждые 5 минут
+CHECK_INTERVAL = 60  # ВРЕМЕННО: проверка каждую 1 минуту (для теста)
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
 
@@ -51,26 +51,25 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
-save_data(SEEN_ADS_FILE, [])  # <--- ВРЕМЕННАЯ ОЧИСТКА БАЗЫ (УБРАТЬ ПОСЛЕ ТЕСТА)
+# save_data(SEEN_ADS_FILE, [])  # <-- ЗАКОММЕНТИРОВАНО, база НЕ очищается
 
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
-        "cat": "2010",      # Категория: Шины
-        "query": query,     # Поисковый запрос
+        "cat": "2010",
+        "query": query,
         "lang": "ru",
         "size": "30",
-        "cmp": "0",         # Только частные лица
-        "rgn": "7",         # Минск
-        "sort": "lst.d"     # Сначала новые
+        "cmp": "1",         # ВРЕМЕННО: все продавцы (не только частные)
+        "rgn": "7",
+        "sort": "lst.d"
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     found_ads = []
-    
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code != 200:
@@ -79,25 +78,11 @@ def fetch_kufar_ads(query):
 
         data = response.json()
         ads = data.get("ads", [])
+        logging.info(f"По запросу '{query}' найдено {len(ads)} объявлений")
 
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
-            
-            # --- ФИЛЬТРЫ ВРЕМЕННО ОТКЛЮЧЕНЫ ДЛЯ ТЕСТА ---
-            # if ad.get("company_ad", False):
-            #     continue
-            # title = ad.get("subject", "Шины")
-            # params_list = ad.get("ad_parameters", [])
-            # all_text = title.lower()
-            # for p in params_list:
-            #     all_text += " " + str(p.get("pl", "")).lower()
-            #     all_text += " " + str(p.get("vl", "")).lower()
-            # if "новое" in all_text or "нов." in all_text:
-            #     continue
-            # if "летн" in all_text and "зим" not in all_text:
-            #     continue
-            # --- КОНЕЦ ОТКЛЮЧЕННЫХ ФИЛЬТРОВ ---
-
+            # ВРЕМЕННО: фильтры отключены полностью
             title = ad.get("subject", "Шины")
             price_byn = ad.get("price_byn", "0")
             try:
@@ -114,7 +99,6 @@ def fetch_kufar_ads(query):
                 "link": ad_link,
                 "query": query
             })
-
     except Exception as e:
         logging.error(f"Ошибка при парсинге Куфара ({query}): {e}")
 
@@ -169,7 +153,7 @@ def send_welcome(message):
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
         f"Вы успешно **подписались** на уведомления.\n\n"
         f"🔍 **Отслеживаемые размеры:**\n{queries_str}\n\n"
-        f"Бот проверяет Kufar каждые 5 минут!"
+        f"Бот проверяет Kufar каждую минуту!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -211,20 +195,16 @@ def index():
 
 # --- 6. ЗАПУСК ---
 if __name__ == "__main__":
-    # Удаляем старый вебхук (на всякий случай)
     try:
         bot.remove_webhook()
         time.sleep(1)
-        # Устанавливаем новый вебхук
         bot.set_webhook(url=f"{RENDER_EXTERNAL_URL}/{BOT_TOKEN}")
         logging.info(f"Вебхук установлен: {RENDER_EXTERNAL_URL}/{BOT_TOKEN}")
     except Exception as e:
         logging.error(f"Ошибка установки вебхука: {e}")
 
-    # Запускаем сканер Куфара в фоне
     threading.Thread(target=check_kufar_loop, daemon=True).start()
 
-    # Запускаем Flask-сервер
     port = int(os.environ.get("PORT", 10000))
     logging.info(f"Flask сервер запущен на порту {port}")
     app.run(host="0.0.0.0", port=port)
