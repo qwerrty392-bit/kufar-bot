@@ -220,8 +220,6 @@ def status_info(message):
 # --- 6. ЗАПУСК ---
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    import asyncio
-from telegram import Bot
 import time
 
 async def clear_webhook():
