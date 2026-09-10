@@ -51,7 +51,7 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
-# save_data(SEEN_ADS_FILE, [])  # Закомментировано — база не очищается
+  save_data(SEEN_ADS_FILE, [])  # Закомментировано — база не очищается
 
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
