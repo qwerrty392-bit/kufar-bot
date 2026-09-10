@@ -217,9 +217,9 @@ def status_info(message):
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 if __name__ == "__main__":
-       threading.Thread(target=start_health_server, daemon=True).start()
+    threading.Thread(target=start_health_server, daemon=True).start()
 
-        # Сброс вебхука перед запуском
+    # Сброс вебхука перед запуском
     try:
         bot.set_webhook(url=None) # Убираем старый вебхук (None вместо '')
         print("Вебхук удалён, конфликт устранён")
@@ -235,7 +235,3 @@ if __name__ == "__main__":
         except Exception as e:
             logging.error(f"Ошибка: {e}. Перезапуск через 10 секунд...")
             time.sleep(10)
-# Защита от завершения программы
-import time
-while True:
-    time.sleep(60)
