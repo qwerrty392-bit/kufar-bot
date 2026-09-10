@@ -235,3 +235,7 @@ if __name__ == "__main__":
         except Exception as e:
             logging.error(f"Ошибка: {e}. Перезапуск через 10 секунд...")
             time.sleep(10)
+# Защита от завершения программы
+import time
+while True:
+    time.sleep(60)
