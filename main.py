@@ -219,13 +219,12 @@ def status_info(message):
 
 # ... ваш код выше ...
 
-if __name__ == "__main__":
     if __name__ == "__main__":
-    threading.Thread(target=start_health_server, daemon=True).start()
+        threading.Thread(target=start_health_server, daemon=True).start()
 
     # Сброс вебхука перед запуском
     try:
-        bot.set_webhook(url=None)  # Убираем старый вебхук (None вместо '')
+        bot.set_webhook(url=None) # Убираем старый вебхук (None вместо '')
         print("Вебхук удалён, конфликт устранён")
     except Exception as e:
         print(f"Ошибка сброса вебхука: {e}")
