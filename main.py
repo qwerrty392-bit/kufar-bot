@@ -13,10 +13,9 @@ from telebot import types
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
+BOT_TOKEN = "8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4"
 
-# ВАЖНО: URL вашего сервиса на Render (замените на свой!)
-# Он выглядит как https://kufar-bot-vpkb.onrender.com
+# URL вашего сервиса на Render
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
 
 SEARCH_QUERIES = [
@@ -52,25 +51,26 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
- save_data(SEEN_ADS_FILE, [])  # <-- РАСКОММЕНТИРУЙТЕ ОДИН РАЗ ДЛЯ ОЧИСТКИ БАЗЫ
+save_data(SEEN_ADS_FILE, [])  # <--- ВРЕМЕННАЯ ОЧИСТКА БАЗЫ (УБРАТЬ ПОСЛЕ ТЕСТА)
 
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
-        "cat": "2010",
-        "query": query,
+        "cat": "2010",      # Категория: Шины
+        "query": query,     # Поисковый запрос
         "lang": "ru",
         "size": "30",
-        "cmp": "0",
-        "rgn": "7",
-        "sort": "lst.d"
+        "cmp": "0",         # Только частные лица
+        "rgn": "7",         # Минск
+        "sort": "lst.d"     # Сначала новые
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     found_ads = []
+    
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code != 200:
@@ -83,7 +83,7 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # --- ФИЛЬТРЫ (раскомментируйте, когда закончите тесты) ---
+            # --- ФИЛЬТРЫ ВРЕМЕННО ОТКЛЮЧЕНЫ ДЛЯ ТЕСТА ---
             # if ad.get("company_ad", False):
             #     continue
             # title = ad.get("subject", "Шины")
@@ -96,7 +96,7 @@ def fetch_kufar_ads(query):
             #     continue
             # if "летн" in all_text and "зим" not in all_text:
             #     continue
-            # --- КОНЕЦ ФИЛЬТРОВ ---
+            # --- КОНЕЦ ОТКЛЮЧЕННЫХ ФИЛЬТРОВ ---
 
             title = ad.get("subject", "Шины")
             price_byn = ad.get("price_byn", "0")
@@ -114,6 +114,7 @@ def fetch_kufar_ads(query):
                 "link": ad_link,
                 "query": query
             })
+
     except Exception as e:
         logging.error(f"Ошибка при парсинге Куфара ({query}): {e}")
 
@@ -122,6 +123,7 @@ def fetch_kufar_ads(query):
 # --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
+
     while True:
         try:
             for query in SEARCH_QUERIES:
@@ -140,15 +142,19 @@ def check_kufar_loop():
                                 f"📍 **Город:** Минск\n\n"
                                 f"🔗 [Открыть на Kufar]({ad['link']})"
                             )
+                            
                             for user_id in list(subscribers):
                                 try:
                                     bot.send_message(user_id, message_text, parse_mode="Markdown")
                                     logging.info(f"Уведомление отправлено {user_id}: {ad['title']}")
                                 except Exception as err:
                                     logging.error(f"Не удалось отправить {user_id}: {err}")
+                
                 time.sleep(2)
+
         except Exception as e:
             logging.error(f"Ошибка сканера: {e}")
+            
         time.sleep(CHECK_INTERVAL)
 
 # --- 4. КОМАНДЫ БОТА ---
@@ -157,6 +163,7 @@ def send_welcome(message):
     user_id = message.chat.id
     subscribers.add(user_id)
     save_data(USERS_FILE, list(subscribers))
+    
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
@@ -217,7 +224,7 @@ if __name__ == "__main__":
     # Запускаем сканер Куфара в фоне
     threading.Thread(target=check_kufar_loop, daemon=True).start()
 
-    # Запускаем Flask-сервер (он будет слушать порт Render)
+    # Запускаем Flask-сервер
     port = int(os.environ.get("PORT", 10000))
     logging.info(f"Flask сервер запущен на порту {port}")
     app.run(host="0.0.0.0", port=port)
