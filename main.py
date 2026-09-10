@@ -220,7 +220,26 @@ def status_info(message):
 # --- 6. ЗАПУСК ---
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    threading.Thread(target=check_kufar_loop, daemon=True).start()
-    logging.info("Бот запущен!")
-    bot.infinity_polling(skip_pending=True)
+    import asyncio
+from telegram import Bot
+import time
+
+async def clear_webhook():
+    bot = Bot(token="8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4Н")  # Вставьте ваш токен
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("Webhook удалён, конфликт устранён")
+
+if __name__ == '__main__':
+    # Сброс вебхука перед запуском
+    asyncio.run(clear_webhook())
+
+    # Запуск в бесконечном цикле с автоперезапуском
+    while True:
+        try:
+            threading.Thread(target=check_kufar_loop, daemon=True).start()
+            logging.info("Бот запущен!")
+            bot.infinity_polling(skip_pending=True, drop_pending_updates=True)
+        except Exception as e:
+            logging.error(f"Ошибка: {e}. Перезапуск через 10 секунд...")
+            time.sleep(10)
 
