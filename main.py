@@ -217,27 +217,26 @@ def status_info(message):
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
-# --- 6. ЗАПУСК ---
+# ... ваш код выше ...
+
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-import time
 
-async def clear_webhook():
-    bot = Bot(token="8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4Н")  # Вставьте ваш токен
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("Webhook удалён, конфликт устранён")
-
-if __name__ == '__main__':
     # Сброс вебхука перед запуском
-    asyncio.run(clear_webhook())
+    try:
+        bot.set_webhook(url='')  # Убираем старый вебхук
+        print("Вебхук удалён, конфликт устранён")
+    except Exception as e:
+        print(f"Ошибка сброса вебхука: {e}")
 
-    # Запуск в бесконечном цикле с автоперезапуском
+    # Запуск с автоперезапуском
     while True:
         try:
             threading.Thread(target=check_kufar_loop, daemon=True).start()
             logging.info("Бот запущен!")
-            bot.infinity_polling(skip_pending=True, drop_pending_updates=True)
+            bot.infinity_polling(none_stop=True, skip_pending=True)
         except Exception as e:
             logging.error(f"Ошибка: {e}. Перезапуск через 10 секунд...")
             time.sleep(10)
+
 
