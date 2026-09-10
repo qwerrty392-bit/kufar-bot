@@ -66,18 +66,17 @@ def save_data(filename, data):
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
 
-# --- 3. УЛУЧШЕННЫЙ ПАРСИНГ KUFAR ---
+# --- 3. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
         "cat": "2010",      # Категория: Шины
-        "query": query,     # Поисковый размер
+        "query": query,     # Поисковый запрос
         "lang": "ru",
         "size": "30",
         "cmp": "0",         # Только частные лица
         "rgn": "7",         # Минск
-        "cnd": "2",         # Б/У
-        "sort": "lst.d"     # 👈 СОРТИРОВКА: Сначала самые свежие!
+        "sort": "lst.d"     # Сначала новые
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -88,7 +87,7 @@ def fetch_kufar_ads(query):
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code != 200:
-            logging.warning(f"Ошибка Kufar ({response.status_code}) для '{query}'")
+            logging.warning(f"Ошибка Kufar status={response.status_code} query='{query}'")
             return found_ads
 
         data = response.json()
@@ -97,21 +96,24 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # Исключаем компании/магазины
+            # 1. Проверка: Только частные лица (не компании)
             if ad.get("company_ad", False):
                 continue
 
             title = ad.get("subject", "Шины")
             
-            # Собираем всю текстовую информацию для проверки на "зима"
+            # Собираем текстовые параметры
             params_list = ad.get("ad_parameters", [])
             all_text = title.lower()
             for p in params_list:
                 all_text += " " + str(p.get("pl", "")).lower()
                 all_text += " " + str(p.get("vl", "")).lower()
 
-            # Фильтр на Зимние шины (проверка слова или кода категории Kufar)
-            # Если в объявлении упоминаются летние шины без слова "зим" - пропускаем
+            # 2. Фильтр: Б/У (Исключаем только новое)
+            if "новое" in all_text or "нов." in all_text:
+                continue
+
+            # 3. Фильтр: Зимние шины (Исключаем строго летние)
             if "летн" in all_text and "зим" not in all_text:
                 continue
 
@@ -140,17 +142,20 @@ def fetch_kufar_ads(query):
 # --- 4. ФОНОВЫЙ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
+    is_first_run = len(seen_ads) == 0
+
     while True:
         try:
-            if subscribers:
-                for query in SEARCH_QUERIES:
-                    ads = fetch_kufar_ads(query)
-                    for ad in ads:
-                        ad_id = ad["id"]
-                        if ad_id not in seen_ads:
-                            seen_ads.add(ad_id)
-                            save_data(SEEN_ADS_FILE, list(seen_ads))
-                            
+            for query in SEARCH_QUERIES:
+                ads = fetch_kufar_ads(query)
+                for ad in ads:
+                    ad_id = ad["id"]
+                    if ad_id not in seen_ads:
+                        seen_ads.add(ad_id)
+                        save_data(SEEN_ADS_FILE, list(seen_ads))
+                        
+                        # Не отправляем уведомления при самом первом запуске базы
+                        if not is_first_run and subscribers:
                             message_text = (
                                 f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
                                 f"📌 **{ad['title']}**\n"
@@ -165,8 +170,11 @@ def check_kufar_loop():
                                     bot.send_message(user_id, message_text, parse_mode="Markdown")
                                 except Exception as err:
                                     logging.error(f"Не удалось отправить {user_id}: {err}")
-                    
-                    time.sleep(2)
+                
+                time.sleep(2)
+            
+            is_first_run = False
+
         except Exception as e:
             logging.error(f"Ошибка сканера: {e}")
             
@@ -215,3 +223,4 @@ if __name__ == "__main__":
     threading.Thread(target=check_kufar_loop, daemon=True).start()
     logging.info("Бот запущен!")
     bot.infinity_polling(skip_pending=True)
+
