@@ -4,7 +4,6 @@ import json
 import logging
 import threading
 import requests
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from flask import Flask, request, abort
 import telebot
 from telebot import types
@@ -25,9 +24,10 @@ SEARCH_QUERIES = [
     "185/65 R15"
 ]
 
-CHECK_INTERVAL = 60  # ВРЕМЕННО: проверка каждую 1 минуту (для теста)
+CHECK_INTERVAL = 300  # Проверка каждые 5 минут
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
+MAX_PRICE_BYN = 200  # Максимальная цена в BYN
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -51,25 +51,27 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
-# save_data(SEEN_ADS_FILE, [])  # <-- ЗАКОММЕНТИРОВАНО, база НЕ очищается
+# save_data(SEEN_ADS_FILE, [])  # Закомментировано — база не очищается
 
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
-        "cat": "2010",
-        "query": query,
+        "cat": "2010",      # Категория: Шины
+        "query": query,     # Поисковый запрос
         "lang": "ru",
-        "size": "30",
-        "cmp": "1",         # ВРЕМЕННО: все продавцы (не только частные)
-        "rgn": "7",
-        "sort": "lst.d"
+        "size": "200",      # Увеличено до 200, чтобы получить больше объявлений
+        "cmp": "0",         # Только частные лица (не компании)
+        "rgn": "7",         # Минск
+        "sort": "lst.d",    # Сначала новые
+        "prc": f"r:{MAX_PRICE_BYN * 100}"  # Максимальная цена 200 BYN (в копейках)
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     found_ads = []
+    
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code != 200:
@@ -82,11 +84,35 @@ def fetch_kufar_ads(query):
 
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
-            # ВРЕМЕННО: фильтры отключены полностью
+            
+            # 1. Проверка: Только частные лица (не компании)
+            if ad.get("company_ad", False):
+                continue
+
             title = ad.get("subject", "Шины")
+            
+            # Собираем текстовые параметры
+            params_list = ad.get("ad_parameters", [])
+            all_text = title.lower()
+            for p in params_list:
+                all_text += " " + str(p.get("pl", "")).lower()
+                all_text += " " + str(p.get("vl", "")).lower()
+
+            # 2. Фильтр: Б/У (Исключаем только новое)
+            if "новое" in all_text or "нов." in all_text:
+                continue
+
+            # 3. Фильтр: Зимние шины (Исключаем строго летние)
+            if "летн" in all_text and "зим" not in all_text:
+                continue
+
+            # 4. Фильтр: Цена до 200 BYN
             price_byn = ad.get("price_byn", "0")
             try:
-                price = f"{int(price_byn) // 100} BYN"
+                price_int = int(price_byn) // 100
+                if price_int > MAX_PRICE_BYN:
+                    continue
+                price = f"{price_int} BYN"
             except:
                 price = "Цена не указана"
 
@@ -99,6 +125,7 @@ def fetch_kufar_ads(query):
                 "link": ad_link,
                 "query": query
             })
+
     except Exception as e:
         logging.error(f"Ошибка при парсинге Куфара ({query}): {e}")
 
@@ -120,10 +147,11 @@ def check_kufar_loop():
                         
                         if subscribers:
                             message_text = (
-                                f"🔔 **Новое объявление в Минске [{ad['query']}]**\n\n"
+                                f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
                                 f"📌 **{ad['title']}**\n"
                                 f"💰 **Цена:** {ad['price']}\n"
-                                f"📍 **Город:** Минск\n\n"
+                                f"📍 **Город:** Минск\n"
+                                f"👤 **Продавец:** Частное лицо (б/у)\n\n"
                                 f"🔗 [Открыть на Kufar]({ad['link']})"
                             )
                             
@@ -151,9 +179,11 @@ def send_welcome(message):
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
-        f"Вы успешно **подписались** на уведомления.\n\n"
+        f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске**.\n\n"
         f"🔍 **Отслеживаемые размеры:**\n{queries_str}\n\n"
-        f"Бот проверяет Kufar каждую минуту!"
+        f"💰 **Максимальная цена:** {MAX_PRICE_BYN} BYN\n"
+        f"👤 **Только частные лица**\n\n"
+        f"Бот проверяет Kufar каждые 5 минут!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
 
@@ -174,6 +204,7 @@ def status_info(message):
         f"📍 Регион: г. Минск\n"
         f"👥 Подписчиков: {len(subscribers)}\n"
         f"📦 Обработано объявлений: {len(seen_ads)}\n"
+        f"💰 Макс. цена: {MAX_PRICE_BYN} BYN\n"
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
     )
     bot.reply_to(message, text, parse_mode="Markdown")
