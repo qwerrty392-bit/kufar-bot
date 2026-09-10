@@ -216,13 +216,10 @@ def status_info(message):
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
     )
     bot.reply_to(message, text, parse_mode="Markdown")
-
-# ... ваш код выше ...
-
     if __name__ == "__main__":
-        threading.Thread(target=start_health_server, daemon=True).start()
+       threading.Thread(target=start_health_server, daemon=True).start()
 
-    # Сброс вебхука перед запуском
+        # Сброс вебхука перед запуском
     try:
         bot.set_webhook(url=None) # Убираем старый вебхук (None вместо '')
         print("Вебхук удалён, конфликт устранён")
@@ -238,6 +235,3 @@ def status_info(message):
         except Exception as e:
             logging.error(f"Ошибка: {e}. Перезапуск через 10 секунд...")
             time.sleep(10)
-
-
-
