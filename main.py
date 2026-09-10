@@ -216,7 +216,7 @@ def status_info(message):
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
     )
     bot.reply_to(message, text, parse_mode="Markdown")
-    if __name__ == "__main__":
+if __name__ == "__main__":
        threading.Thread(target=start_health_server, daemon=True).start()
 
         # Сброс вебхука перед запуском
