@@ -60,11 +60,10 @@ def fetch_kufar_ads(query):
         "cat": "2010",      # Категория: Шины
         "query": query,     # Поисковый запрос
         "lang": "ru",
-        "size": "200",      # Увеличено до 200, чтобы получить больше объявлений
+        "size": "50",       # Умеренное значение
         "cmp": "0",         # Только частные лица (не компании)
         "rgn": "7",         # Минск
-        "sort": "lst.d",    # Сначала новые
-        "prc": f"r:{MAX_PRICE_BYN * 100}"  # Максимальная цена 200 BYN (в копейках)
+        "sort": "lst.d"     # Сначала новые
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -106,7 +105,7 @@ def fetch_kufar_ads(query):
             if "летн" in all_text and "зим" not in all_text:
                 continue
 
-            # 4. Фильтр: Цена до 200 BYN
+            # 4. Фильтр: Цена до 200 BYN (проверка в коде)
             price_byn = ad.get("price_byn", "0")
             try:
                 price_int = int(price_byn) // 100
