@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8753909204:AAFO5nIkWctl0pT07vyBczV8l4HyNE1Cst0")
 
-# Отслеживаемые размеры шин
+# Размеры шин для отслеживания
 TARGET_SIZES = [
     {"w": "205", "p": "55", "d": "16"},
     {"w": "195", "p": "65", "d": "15"},
@@ -23,19 +23,19 @@ TARGET_SIZES = [
     {"w": "185", "p": "65", "d": "15"}
 ]
 
-CHECK_INTERVAL = 60  # Проверка каждые 60 секунд
+CHECK_INTERVAL = 60  # Проверка каждую минуту
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- 1. ВЕБ-СЕРВЕР ДЛЯ RENDER ---
+# --- 1. ВЕБ-СЕРВЕР ДЛЯ RENDER (HEALTH CHECK) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"Bot is active!")
+        self.wfile.write(b"Kufar Bot is Running!")
 
     def log_message(self, format, *args):
         return
@@ -43,17 +43,17 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 def start_health_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    logging.info(f"HTTP-сервер запущен на порту {port}")
+    logging.info(f"Health check HTTP server started on port {port}")
     server.serve_forever()
 
-# --- 2. РАБОТА С ХРАНИЛИЩЕМ ---
+# --- 2. РАБОТА С ФАЙЛАМИ ДАННЫХ ---
 def load_data(filename):
     if os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 return set(json.load(f))
         except Exception as e:
-            logging.error(f"Ошибка загрузки {filename}: {e}")
+            logging.error(f"Error loading {filename}: {e}")
     return set()
 
 def save_data(filename, data_set):
@@ -61,35 +61,38 @@ def save_data(filename, data_set):
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(list(data_set), f, ensure_ascii=False)
     except Exception as e:
-        logging.error(f"Ошибка сохранения {filename}: {e}")
+        logging.error(f"Error saving {filename}: {e}")
 
 subscribers = load_data(USERS_FILE)
 seen_ads = load_data(SEEN_ADS_FILE)
 
-# --- 3. ОБРАБОТКА КОМАНДЫ /start ---
+# --- 3. ОБРАБОТЧИК /START ---
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     try:
         chat_id = message.chat.id
-        logging.info(f"Нажата кнопка /start пользователем {chat_id}")
+        logging.info(f"User {chat_id} triggered /start")
         
         if chat_id not in subscribers:
             subscribers.add(chat_id)
             save_data(USERS_FILE, subscribers)
-            logging.info(f"Сохранен новый подписчик: {chat_id}")
-        
+            logging.info(f"Saved subscriber {chat_id}")
+            
         sizes_str = ", ".join([f"{s['w']}/{s['p']} R{s['d']}" for s in TARGET_SIZES])
-        text = (
-            "👋 <b>Hello! Tire search is active!</b>\n\n"
-            f"🔍 <b>Tracking sizes:</b> {sizes_str}\n"
-            "📍 <b>Filters:</b> Minsk, Used, Private sellers, Winter, Up to 200 BYN.\n\n"
-            "As soon as a new ad appears on Kufar, I will send it here!"
+        welcome_text = (
+            "👋 <b>Привет! Я твой бот-охотник за шинами!</b>\n\n"
+            "🎯 <b>Что я отслеживаю на Куфаре:</b>\n"
+            f"• Размеры: <code>{sizes_str}</code>\n"
+            "• Город: <b>Минск</b> (только частники)\n"
+            "• Сезон: <b>Зима</b> (только Б/У)\n"
+            "• Бюджет: <b>до 200 BYN</b>\n\n"
+            "Как только появится горячий вариант — я сразу пришлю его сюда с фото и ценой! ⚡"
         )
-        bot.send_message(chat_id, text, parse_mode="HTML")
+        bot.send_message(chat_id, welcome_text, parse_mode="HTML")
     except Exception as e:
-        logging.error(f"Ошибка при обработке /start: {e}")
+        logging.error(f"Error in /start handler: {e}")
 
-# --- 4. ПРОВЕРКА СООТВЕТСТВИЯ РАЗМЕРА ---
+# --- 4. ПРОВЕРКА РАЗМЕРОВ ШИНЫ ---
 def matches_target_size(ad):
     title = ad.get("subject", "").lower()
     body = ad.get("body", "").lower()
@@ -111,27 +114,29 @@ def matches_target_size(ad):
     for target in TARGET_SIZES:
         tw, tp, td = target["w"], target["p"], target["d"]
         
+        # 1. По параметрам Куфара
         if params.get("w") == tw and params.get("p") == tp and params.get("d") == td:
             return f"{tw}/{tp} R{td}"
             
+        # 2. По тексту (205/55 R16, 205/55r16, 205 55 16, 205/55/16)
         pattern = rf"\b{tw}[/ -.\\]+{tp}\b.*?\b(r|р)?{td}\b"
         if re.search(pattern, full_text):
             return f"{tw}/{tp} R{td}"
             
     return None
 
-# --- 5. ПАРСИНГ КУФАРА ---
+# --- 5. СКАНИРОВАНИЕ КУФАРА ---
 def fetch_kufar_ads():
     url = "https://cre-api.kufar.by/v1/search/renditions/ad-list"
     params = {
-        "cat": "2010",
+        "cat": "2010",       # Автомобильные шины
         "size": 30,
-        "sort": "lst.d",
-        "cnd": "2",          # Б/У
-        "cmp": "0",          # Частники
-        "rgn": "7",          # Минск
+        "sort": "lst.d",     # Сначала самые новые
+        "cnd": "2",          # Только Б/У
+        "cmp": "0",          # Только частные лица
+        "rgn": "7",          # Только Минск
         "prc": "r:0,20000",  # До 200 BYN
-        "ar_season": "2"     # Зима
+        "ar_season": "2"     # Только зимние
     }
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
@@ -140,11 +145,11 @@ def fetch_kufar_ads():
         if res.status_code == 200:
             return res.json().get("ads", [])
     except Exception as e:
-        logging.error(f"Ошибка запроса к Куфару: {e}")
+        logging.error(f"Kufar request error: {e}")
     return []
 
 def check_kufar_loop():
-    logging.info("Сканнер Куфара запущен...")
+    logging.info("Kufar scanner loop started...")
     while True:
         try:
             ads = fetch_kufar_ads()
@@ -168,12 +173,13 @@ def check_kufar_loop():
                     photo_url = f"https://yams.kufar.by/v1/transform/v1/m/id/{images[0]['path']}?rule=gallery" if images else None
 
                     msg_text = (
-                        f"🔔 <b>New tire found: {matched_size}!</b>\n\n"
+                        f"❄️ <b>Найдена зимняя шина {matched_size}!</b>\n\n"
                         f"📌 <b>{title}</b>\n"
-                        f"💰 <b>Price:</b> {price_str}\n\n"
-                        f"🔗 <a href='{link}'>Open on Kufar</a>"
+                        f"💰 <b>Цена:</b> {price_str}\n\n"
+                        f"🔗 <a href='{link}'>Открыть на Kufar</a>"
                     )
 
+                    # Рассылка всем подписчикам
                     for chat_id in list(subscribers):
                         try:
                             if photo_url:
@@ -181,25 +187,34 @@ def check_kufar_loop():
                             else:
                                 bot.send_message(chat_id, msg_text, parse_mode="HTML")
                         except Exception as e:
-                            logging.error(f"Ошибка отправки пользователю {chat_id}: {e}")
+                            logging.error(f"Send error to {chat_id}: {e}")
 
                     seen_ads.add(ad_id)
                     save_data(SEEN_ADS_FILE, seen_ads)
 
         except Exception as e:
-            logging.error(f"Ошибка в цикле сканирования: {e}")
+            logging.error(f"Error in scan loop: {e}")
 
         time.sleep(CHECK_INTERVAL)
 
-# --- 6. ЗАПУСК ВСЕХ ПОТОКОВ ---
+# --- 6. ЗАПУСК ВСЕХ СЛУЖБ ---
 if __name__ == "__main__":
+    # 1. Запуск веб-сервера для Render
     threading.Thread(target=start_health_server, daemon=True).start()
+    
+    # 2. Запуск фонового сканирования Куфара
     threading.Thread(target=check_kufar_loop, daemon=True).start()
     
-    try:
-        bot.remove_webhook()
-    except Exception:
-        pass
+    # 3. Безопасный запуск поллинга Телеграм с авто-переподключением
+    while True:
+        try:
+            try:
+                bot.remove_webhook()
+            except Exception:
+                pass
+            logging.info("Starting Telegram bot polling...")
+            bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
+        except Exception as err:
+            logging.error(f"Polling crashed: {err}. Restarting in 5s...")
+            time.sleep(5)
 
-    logging.info("Бот готов получать сообщения...")
-    bot.infinity_polling(skip_pending=True)
