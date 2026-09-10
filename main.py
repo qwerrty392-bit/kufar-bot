@@ -65,7 +65,7 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
-
+save_data(SEEN_ADS_FILE, [])  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
 # --- 3. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
