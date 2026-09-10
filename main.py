@@ -65,7 +65,8 @@ def save_data(filename, data):
 
 subscribers = set(load_data(USERS_FILE, []))
 seen_ads = set(load_data(SEEN_ADS_FILE, []))
-save_data(SEEN_ADS_FILE, [])  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
+save_data(SEEN_ADS_FILE, [])  # <--- ВРЕМЕННАЯ ОЧИСТКА БАЗЫ (УБРАТЬ ПОСЛЕ ТЕСТА)
+
 # --- 3. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
@@ -96,26 +97,24 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # 1. Проверка: Только частные лица (не компании)
-            if ad.get("company_ad", False):
-                continue
+            # --- ФИЛЬТРЫ ВРЕМЕННО ОТКЛЮЧЕНЫ ДЛЯ ТЕСТА ---
+            # if ad.get("company_ad", False):
+            #     continue
 
             title = ad.get("subject", "Шины")
             
-            # Собираем текстовые параметры
-            params_list = ad.get("ad_parameters", [])
-            all_text = title.lower()
-            for p in params_list:
-                all_text += " " + str(p.get("pl", "")).lower()
-                all_text += " " + str(p.get("vl", "")).lower()
+            # params_list = ad.get("ad_parameters", [])
+            # all_text = title.lower()
+            # for p in params_list:
+            #     all_text += " " + str(p.get("pl", "")).lower()
+            #     all_text += " " + str(p.get("vl", "")).lower()
 
-            # 2. Фильтр: Б/У (Исключаем только новое)
-            if "новое" in all_text or "нов." in all_text:
-                continue
+            # if "новое" in all_text or "нов." in all_text:
+            #     continue
 
-            # 3. Фильтр: Зимние шины (Исключаем строго летние)
-            if "летн" in all_text and "зим" not in all_text:
-                continue
+            # if "летн" in all_text and "зим" not in all_text:
+            #     continue
+            # --- КОНЕЦ ОТКЛЮЧЕННЫХ ФИЛЬТРОВ ---
 
             # Цена
             price_byn = ad.get("price_byn", "0")
@@ -153,14 +152,12 @@ def check_kufar_loop():
                         seen_ads.add(ad_id)
                         save_data(SEEN_ADS_FILE, list(seen_ads))
                         
-                        # Отправляем уведомление всем подписчикам
                         if subscribers:
                             message_text = (
-                                f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
+                                f"🔔 **Новое объявление в Минске [{ad['query']}]**\n\n"
                                 f"📌 **{ad['title']}**\n"
                                 f"💰 **Цена:** {ad['price']}\n"
-                                f"📍 **Город:** Минск\n"
-                                f"👤 **Продавец:** Частное лицо (б/у)\n\n"
+                                f"📍 **Город:** Минск\n\n"
                                 f"🔗 [Открыть на Kufar]({ad['link']})"
                             )
                             
@@ -171,7 +168,7 @@ def check_kufar_loop():
                                 except Exception as err:
                                     logging.error(f"Не удалось отправить {user_id}: {err}")
                 
-                time.sleep(2) # Пауза между запросами к Куфару
+                time.sleep(2)
 
         except Exception as e:
             logging.error(f"Ошибка сканера: {e}")
@@ -188,7 +185,7 @@ def send_welcome(message):
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
-        f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске**.\n\n"
+        f"Вы успешно **подписались** на уведомления.\n\n"
         f"🔍 **Отслеживаемые размеры:**\n{queries_str}\n\n"
         f"Бот проверяет Kufar каждые 5 минут!"
     )
@@ -220,16 +217,13 @@ def status_info(message):
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
 
-    # Сброс вебхука перед запуском
     try:
         bot.set_webhook(url=None)
-        print("Вебхук удалён, конфликт устранён")
+        print("Вебхук удалён")
     except Exception as e:
         print(f"Ошибка сброса вебхука: {e}")
 
-    # Запуск сканера Куфара в фоне
     threading.Thread(target=check_kufar_loop, daemon=True).start()
 
-    # Запуск слушателя Telegram (Polling)
     logging.info("Бот запущен!")
     bot.infinity_polling(none_stop=True, skip_pending=True)
