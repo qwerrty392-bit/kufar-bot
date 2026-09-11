@@ -30,6 +30,7 @@ SEARCH_QUERIES = [
 
 CHECK_INTERVAL = 300  # 5 минут
 USERS_FILE = "subscribers.json"
+SEEN_ADS_FILE = "seen_ads.json"
 MAX_PRICE_BYN = 200
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -58,17 +59,17 @@ def get_all_subscribers():
     all_subs.update(file_subs)
     return all_subs
 
-# --- 2. ПАРСИНГ KUFAR (ФИЛЬТРЫ ОТКЛЮЧЕНЫ) ---
+# --- 2. ПАРСИНГ KUFAR (С ФИЛЬТРАМИ) ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
-        "cat": "2010",
-        "query": query,
+        "cat": "2010",      # Категория: Шины
+        "query": query,     # Поисковый запрос
         "lang": "ru",
         "size": "50",
-        "cmp": "0",
-        "rgn": "7",
-        "sort": "lst.d"
+        "cmp": "0",         # Только частные лица
+        "rgn": "7",         # Минск
+        "sort": "lst.d"     # Сначала новые
     }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -88,25 +89,37 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # === ВСЕ ФИЛЬТРЫ ОТКЛЮЧЕНЫ ===
-            # if ad.get("company_ad", False):
-            #     continue
+            # 1. Проверка: Только частные лица (не компании)
+            if ad.get("company_ad", False):
+                continue
 
             title = ad.get("subject", "Шины")
-            # params_list = ad.get("ad_parameters", [])
-            # all_text = title.lower()
-            # for p in params_list:
-            #     all_text += " " + str(p.get("pl", "")).lower()
-            #     all_text += " " + str(p.get("vl", "")).lower()
+            
+            # Собираем текстовые параметры
+            params_list = ad.get("ad_parameters", [])
+            all_text = title.lower()
+            for p in params_list:
+                all_text += " " + str(p.get("pl", "")).lower()
+                all_text += " " + str(p.get("vl", "")).lower()
 
-            # if "новое" in all_text or "нов." in all_text:
-            #     continue
-            # if "летн" in all_text and "зим" not in all_text:
-            #     continue
+            # 2. Фильтр: Только шины (в названии должно быть слово "шина" или "шины")
+            if "шин" not in all_text:
+                continue
 
+            # 3. Фильтр: Б/У (Исключаем только новое)
+            if "новое" in all_text or "нов." in all_text:
+                continue
+
+            # 4. Фильтр: Зимние шины (Исключаем строго летние)
+            if "летн" in all_text and "зим" not in all_text:
+                continue
+
+            # 5. Фильтр: Цена до 200 BYN
             price_byn = ad.get("price_byn", "0")
             try:
                 price_int = int(price_byn) // 100
+                if price_int > MAX_PRICE_BYN:
+                    continue
                 price = f"{price_int} BYN"
             except:
                 price = "Цена не указана"
@@ -129,46 +142,46 @@ def fetch_kufar_ads(query):
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
 
+    # Загружаем базу увиденных объявлений
+    seen_ads = set(load_data(SEEN_ADS_FILE, []))
+
     while True:
-        try:
-            bot.send_message(MY_TELEGRAM_ID, "🧪 ТЕСТ: Бот начинает сканирование!")
-            logging.info("✅ ТЕСТОВОЕ сообщение отправлено")
-        except Exception as e:
-            logging.error(f"❌ ОШИБКА тестовой отправки: {e}")
-        
         subscribers = get_all_subscribers()
-        logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)} ===")
+        logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)}. Увиденных: {len(seen_ads)} ===")
 
         try:
             total_sent = 0
             for query in SEARCH_QUERIES:
                 ads = fetch_kufar_ads(query)
                 for ad in ads:
-                    logging.info(f"Найдено подходящее: {ad['title']} | Цена: {ad['price']}")
-                    
-                    if subscribers:
-                        message_text = (
-                            f"❄️ **Объявление в Минске [{ad['query']}]**\n\n"
-                            f"📌 **{ad['title']}**\n"
-                            f"💰 **Цена:** {ad['price']}\n"
-                            f"📍 **Город:** Минск\n\n"
-                            f"🔗 [Открыть на Kufar]({ad['link']})"
-                        )
+                    ad_id = ad["id"]
+                    if ad_id not in seen_ads:
+                        seen_ads.add(ad_id)
+                        save_data(SEEN_ADS_FILE, list(seen_ads))
                         
-                        for user_id in list(subscribers):
-                            try:
-                                logging.info(f"-> ПОПЫТКА отправки {user_id}")
-                                bot.send_message(user_id, message_text, parse_mode="Markdown")
-                                logging.info(f"-> ✅ УСПЕШНО отправлено {user_id}")
-                                total_sent += 1
-                            except Exception as err:
-                                logging.error(f"-> ❌ ОШИБКА отправки {user_id}: {err}")
-                    else:
-                        logging.warning(f"-> ❌ Нет подписчиков для отправки")
+                        logging.info(f"НОВОЕ: {ad['title']} | Цена: {ad['price']}")
+                        
+                        if subscribers:
+                            message_text = (
+                                f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
+                                f"📌 **{ad['title']}**\n"
+                                f"💰 **Цена:** {ad['price']}\n"
+                                f"📍 **Город:** Минск\n"
+                                f"👤 **Продавец:** Частное лицо (б/у)\n\n"
+                                f"🔗 [Открыть на Kufar]({ad['link']})"
+                            )
+                            
+                            for user_id in list(subscribers):
+                                try:
+                                    bot.send_message(user_id, message_text, parse_mode="Markdown")
+                                    logging.info(f"-> ✅ УСПЕШНО отправлено {user_id}")
+                                    total_sent += 1
+                                except Exception as err:
+                                    logging.error(f"-> ❌ ОШИБКА отправки {user_id}: {err}")
                 
                 time.sleep(2)
             
-            logging.info(f"=== ЦИКЛ ЗАВЕРШЕН. Отправлено сообщений: {total_sent} ===")
+            logging.info(f"=== ЦИКЛ ЗАВЕРШЕН. Отправлено новых: {total_sent} ===")
 
         except Exception as e:
             logging.error(f"Ошибка сканера: {e}")
@@ -187,8 +200,10 @@ def send_welcome(message):
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
-        f"Вы успешно **подписались** на уведомления.\n\n"
+        f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске**.\n\n"
         f"🔍 **Отслеживаемые размеры:**\n{queries_str}\n\n"
+        f"💰 **Максимальная цена:** {MAX_PRICE_BYN} BYN\n"
+        f"👤 **Только частные лица**\n\n"
         f"Бот проверяет Kufar каждые 5 минут!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
@@ -207,10 +222,13 @@ def stop_subscription(message):
 @bot.message_handler(commands=['status'])
 def status_info(message):
     subs = get_all_subscribers()
+    seen = set(load_data(SEEN_ADS_FILE, []))
     text = (
         f"📊 **Статус бота:**\n"
         f"📍 Регион: г. Минск\n"
         f"👥 Подписчиков: {len(subs)}\n"
+        f"📦 Увиденных объявлений: {len(seen)}\n"
+        f"💰 Макс. цена: {MAX_PRICE_BYN} BYN\n"
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
     )
     bot.reply_to(message, text, parse_mode="Markdown")
