@@ -30,7 +30,6 @@ SEARCH_QUERIES = [
 
 CHECK_INTERVAL = 300  # 5 минут
 USERS_FILE = "subscribers.json"
-SEEN_ADS_FILE = "seen_ads.json"
 MAX_PRICE_BYN = 200
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -89,6 +88,7 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
+            # === ФИЛЬТРЫ (включены) ===
             if ad.get("company_ad", False):
                 continue
 
@@ -134,50 +134,46 @@ def check_kufar_loop():
     while True:
         # === ТЕСТОВОЕ СООБЩЕНИЕ ПРИ КАЖДОМ ЦИКЛЕ ===
         try:
-            bot.send_message(MY_TELEGRAM_ID, "🧪 ТЕСТ: Бот работает и начинает сканирование!")
+            bot.send_message(MY_TELEGRAM_ID, "🧪 ТЕСТ: Бот начинает сканирование!")
             logging.info("✅ ТЕСТОВОЕ сообщение отправлено")
         except Exception as e:
             logging.error(f"❌ ОШИБКА тестовой отправки: {e}")
         
-        # Очистка базы
-        seen_ads_local = set()
-        save_data(SEEN_ADS_FILE, [])
-        
         subscribers = get_all_subscribers()
-        logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)}. База очищена. ===")
+        logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)} ===")
 
         try:
+            total_sent = 0
             for query in SEARCH_QUERIES:
                 ads = fetch_kufar_ads(query)
                 for ad in ads:
-                    ad_id = ad["id"]
-                    if ad_id not in seen_ads_local:
-                        seen_ads_local.add(ad_id)
-                        save_data(SEEN_ADS_FILE, list(seen_ads_local))
+                    # === БЕЗ ПРОВЕРКИ seen_ads — ОТПРАВЛЯЕМ ВСЁ ===
+                    logging.info(f"Найдено подходящее: {ad['title']} | Подписчиков: {len(subscribers)}")
+                    
+                    if subscribers:
+                        message_text = (
+                            f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
+                            f"📌 **{ad['title']}**\n"
+                            f"💰 **Цена:** {ad['price']}\n"
+                            f"📍 **Город:** Минск\n"
+                            f"👤 **Продавец:** Частное лицо (б/у)\n\n"
+                            f"🔗 [Открыть на Kufar]({ad['link']})"
+                        )
                         
-                        logging.info(f"Новое объявление: {ad['title']} | Подписчиков: {len(subscribers)}")
-                        
-                        if subscribers:
-                            message_text = (
-                                f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
-                                f"📌 **{ad['title']}**\n"
-                                f"💰 **Цена:** {ad['price']}\n"
-                                f"📍 **Город:** Минск\n"
-                                f"👤 **Продавец:** Частное лицо (б/у)\n\n"
-                                f"🔗 [Открыть на Kufar]({ad['link']})"
-                            )
-                            
-                            for user_id in list(subscribers):
-                                try:
-                                    logging.info(f"-> ПОПЫТКА отправки {user_id}")
-                                    bot.send_message(user_id, message_text, parse_mode="Markdown")
-                                    logging.info(f"-> ✅ УСПЕШНО отправлено {user_id}")
-                                except Exception as err:
-                                    logging.error(f"-> ❌ ОШИБКА отправки {user_id}: {err}")
-                        else:
-                            logging.warning(f"-> ❌ Нет подписчиков для отправки")
+                        for user_id in list(subscribers):
+                            try:
+                                logging.info(f"-> ПОПЫТКА отправки {user_id}")
+                                bot.send_message(user_id, message_text, parse_mode="Markdown")
+                                logging.info(f"-> ✅ УСПЕШНО отправлено {user_id}")
+                                total_sent += 1
+                            except Exception as err:
+                                logging.error(f"-> ❌ ОШИБКА отправки {user_id}: {err}")
+                    else:
+                        logging.warning(f"-> ❌ Нет подписчиков для отправки")
                 
                 time.sleep(2)
+            
+            logging.info(f"=== ЦИКЛ ЗАВЕРШЕН. Отправлено сообщений: {total_sent} ===")
 
         except Exception as e:
             logging.error(f"Ошибка сканера: {e}")
