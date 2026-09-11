@@ -47,9 +47,6 @@ def save_data(filename, data):
     except Exception as e:
         logging.error(f"Ошибка сохранения {filename}: {e}")
 
-subscribers = set(load_data(USERS_FILE, []))
-seen_ads = set(load_data(SEEN_ADS_FILE, []))
-
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
@@ -123,15 +120,13 @@ def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
 
     while True:
-        # ВРЕМЕННАЯ ОЧИСТКА БАЗЫ ДЛЯ ТЕСТА
-        seen_ads.clear()
+        # ПРИНУДИТЕЛЬНАЯ ОЧИСТКА БАЗЫ ПЕРЕД КАЖДЫМ СКАНИРОВАНИЕМ
+        seen_ads = set()
         save_data(SEEN_ADS_FILE, [])
-        logging.info(f"База очищена. Подписчиков в памяти: {len(subscribers)}")
         
-        # ПРИНУДИТЕЛЬНО ПЕРЕЧИТЫВАЕМ ФАЙЛ ПОДПИСЧИКОВ
-        subscribers.clear()
-        subscribers.update(load_data(USERS_FILE, []))
-        logging.info(f"Подписчиков после перечитки файла: {len(subscribers)}")
+        # ПРИНУДИТЕЛЬНАЯ ПЕРЕЧИТКА ПОДПИСЧИКОВ
+        subscribers = set(load_data(USERS_FILE, []))
+        logging.info(f"Подписчиков: {len(subscribers)}. База объявлений очищена.")
 
         try:
             for query in SEARCH_QUERIES:
@@ -173,9 +168,10 @@ def check_kufar_loop():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.chat.id
-    subscribers.add(user_id)
-    save_data(USERS_FILE, list(subscribers))
-    logging.info(f"Новый подписчик: {user_id}. Всего: {len(subscribers)}")
+    subs = set(load_data(USERS_FILE, []))
+    subs.add(user_id)
+    save_data(USERS_FILE, list(subs))
+    logging.info(f"Новый подписчик: {user_id}. Всего: {len(subs)}")
     
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
@@ -191,20 +187,21 @@ def send_welcome(message):
 @bot.message_handler(commands=['stop'])
 def stop_subscription(message):
     user_id = message.chat.id
-    if user_id in subscribers:
-        subscribers.remove(user_id)
-        save_data(USERS_FILE, list(subscribers))
+    subs = set(load_data(USERS_FILE, []))
+    if user_id in subs:
+        subs.remove(user_id)
+        save_data(USERS_FILE, list(subs))
         bot.reply_to(message, "❌ Вы отписались от уведомлений.")
     else:
         bot.reply_to(message, "Вы не были подписаны.")
 
 @bot.message_handler(commands=['status'])
 def status_info(message):
+    subs = set(load_data(USERS_FILE, []))
     text = (
         f"📊 **Статус бота:**\n"
         f"📍 Регион: г. Минск\n"
-        f"👥 Подписчиков: {len(subscribers)}\n"
-        f"📦 Обработано объявлений: {len(seen_ads)}\n"
+        f"👥 Подписчиков: {len(subs)}\n"
         f"💰 Макс. цена: {MAX_PRICE_BYN} BYN\n"
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
     )
