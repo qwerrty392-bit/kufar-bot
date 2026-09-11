@@ -11,8 +11,15 @@ from telebot import types
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+# ============================================================
+# --- ВАШ TELEGRAM ID (ВСТАВЬТЕ СЮДА) ---
+# Узнать свой ID можно у бота @userinfobot в Telegram
+# ============================================================
+MY_TELEGRAM_ID = 545995986  # <-- ЗАМЕНИТЕ ЭТО ЧИСЛО НА СВОЙ ID
+# ============================================================
+
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
+BOT_TOKEN = "8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4"
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
 
 SEARCH_QUERIES = [
@@ -46,6 +53,13 @@ def save_data(filename, data):
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logging.error(f"Ошибка сохранения {filename}: {e}")
+
+def get_all_subscribers():
+    """Объединяет постоянного подписчика (из кода) и тех, кто подписался через /start."""
+    all_subs = {MY_TELEGRAM_ID}  # Постоянный подписчик
+    file_subs = set(load_data(USERS_FILE, []))  # Из файла
+    all_subs.update(file_subs)
+    return all_subs
 
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
@@ -117,16 +131,15 @@ def fetch_kufar_ads(query):
 
 # --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
-    global subscribers  # <-- ВАЖНО: используем глобальную переменную
     logging.info("Сканер Куфара запущен...")
 
     while True:
-        # ПРИНУДИТЕЛЬНАЯ ОЧИСТКА БАЗЫ
+        # Временная очистка базы для теста
         seen_ads_local = set()
         save_data(SEEN_ADS_FILE, [])
         
-        # ПРИНУДИТЕЛЬНАЯ ПЕРЕЧИТКА ПОДПИСЧИКОВ
-        subscribers = set(load_data(USERS_FILE, []))
+        # Получаем всех подписчиков (постоянный + из файла)
+        subscribers = get_all_subscribers()
         logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)}. База очищена. ===")
 
         try:
@@ -174,7 +187,7 @@ def send_welcome(message):
     subs = set(load_data(USERS_FILE, []))
     subs.add(user_id)
     save_data(USERS_FILE, list(subs))
-    logging.info(f"Новый подписчик: {user_id}. Всего: {len(subs)}")
+    logging.info(f"Новый подписчик: {user_id}. Всего в файле: {len(subs)}")
     
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
@@ -200,7 +213,7 @@ def stop_subscription(message):
 
 @bot.message_handler(commands=['status'])
 def status_info(message):
-    subs = set(load_data(USERS_FILE, []))
+    subs = get_all_subscribers()
     text = (
         f"📊 **Статус бота:**\n"
         f"📍 Регион: г. Минск\n"
