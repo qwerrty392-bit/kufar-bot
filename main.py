@@ -12,10 +12,9 @@ from telebot import types
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # ============================================================
-# --- ВАШ TELEGRAM ID (ВСТАВЬТЕ СЮДА) ---
-# Узнать свой ID можно у бота @userinfobot в Telegram
+# --- ВАШ TELEGRAM ID ---
 # ============================================================
-MY_TELEGRAM_ID = 545995986  # <-- ЗАМЕНИТЕ ЭТО ЧИСЛО НА СВОЙ ID
+MY_TELEGRAM_ID = 545995986  # <-- Ваш ID
 # ============================================================
 
 # --- КОНФИГУРАЦИЯ ---
@@ -55,9 +54,8 @@ def save_data(filename, data):
         logging.error(f"Ошибка сохранения {filename}: {e}")
 
 def get_all_subscribers():
-    """Объединяет постоянного подписчика (из кода) и тех, кто подписался через /start."""
-    all_subs = {MY_TELEGRAM_ID}  # Постоянный подписчик
-    file_subs = set(load_data(USERS_FILE, []))  # Из файла
+    all_subs = {MY_TELEGRAM_ID}
+    file_subs = set(load_data(USERS_FILE, []))
     all_subs.update(file_subs)
     return all_subs
 
@@ -134,11 +132,17 @@ def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
 
     while True:
-        # Временная очистка базы для теста
+        # === ТЕСТОВОЕ СООБЩЕНИЕ ПРИ КАЖДОМ ЦИКЛЕ ===
+        try:
+            bot.send_message(MY_TELEGRAM_ID, "🧪 ТЕСТ: Бот работает и начинает сканирование!")
+            logging.info("✅ ТЕСТОВОЕ сообщение отправлено")
+        except Exception as e:
+            logging.error(f"❌ ОШИБКА тестовой отправки: {e}")
+        
+        # Очистка базы
         seen_ads_local = set()
         save_data(SEEN_ADS_FILE, [])
         
-        # Получаем всех подписчиков (постоянный + из файла)
         subscribers = get_all_subscribers()
         logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)}. База очищена. ===")
 
