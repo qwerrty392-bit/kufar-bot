@@ -7,14 +7,15 @@ import requests
 from flask import Flask, request, abort
 import telebot
 from telebot import types
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # ============================================================
 # --- ВАШИ TELEGRAM ID ---
 # ============================================================
-MY_TELEGRAM_ID = 545995986       # <-- Ваш основной ID
-SECOND_TELEGRAM_ID = None         # <-- Вставьте сюда второй ID (например: 123456789)
+MY_TELEGRAM_ID = 545995986        # <-- Ваш основной ID
+SECOND_TELEGRAM_ID = 1144833390    # <-- Второй ID
 # ============================================================
 
 # --- КОНФИГУРАЦИЯ ---
@@ -28,9 +29,10 @@ SEARCH_QUERIES = [
     "185/65 R15 шины"
 ]
 
-CHECK_INTERVAL = 300
+CHECK_INTERVAL = 300       # 5 минут
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
+START_TIME_FILE = "start_time.json"
 MAX_PRICE_BYN = 200
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -54,11 +56,20 @@ def save_data(filename, data):
         logging.error(f"Ошибка сохранения {filename}: {e}")
 
 def get_all_subscribers():
-    all_subs = {MY_TELEGRAM_ID}
-    if SECOND_TELEGRAM_ID:
-        all_subs.add(SECOND_TELEGRAM_ID)
+    """Возвращает множество всех подписчиков (из кода + из файла)."""
+    all_subs = {MY_TELEGRAM_ID, SECOND_TELEGRAM_ID}
     all_subs.update(set(load_data(USERS_FILE, [])))
     return all_subs
+
+def get_start_time():
+    """Возвращает timestamp последнего нажатия /start."""
+    data = load_data(START_TIME_FILE, {"time": 0})
+    return data.get("time", 0)
+
+def set_start_time():
+    """Сохраняет текущее время как время /start."""
+    save_data(START_TIME_FILE, {"time": int(time.time())})
+    logging.info(f"Время /start обновлено: {int(time.time())}")
 
 # --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
@@ -89,6 +100,7 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
+            # 1. Только частные лица
             if ad.get("company_ad", False):
                 continue
 
@@ -99,11 +111,15 @@ def fetch_kufar_ads(query):
                 all_text += " " + str(p.get("pl", "")).lower()
                 all_text += " " + str(p.get("vl", "")).lower()
 
+            # 2. Б/У (исключаем новое)
             if "новое" in all_text or "нов." in all_text:
                 continue
+
+            # 3. Только зимние
             if "летн" in all_text and "зим" not in all_text:
                 continue
 
+            # 4. Цена до 200 BYN
             price_byn = ad.get("price_byn", "0")
             try:
                 price_int = int(price_byn) // 100
@@ -114,13 +130,23 @@ def fetch_kufar_ads(query):
                 price = "Цена не указана"
 
             ad_link = ad.get("ad_link", f"https://www.kufar.by/item/{ad_id}")
+            
+            # 5. Время публикации объявления
+            list_time_str = ad.get("list_time", "")
+            list_time_ts = 0
+            try:
+                dt = datetime.strptime(list_time_str, "%Y-%m-%dT%H:%M:%SZ")
+                list_time_ts = int(dt.timestamp())
+            except Exception as e:
+                logging.warning(f"Не удалось распарсить list_time '{list_time_str}': {e}")
 
             found_ads.append({
                 "id": ad_id,
                 "title": title,
                 "price": price,
                 "link": ad_link,
-                "query": query
+                "query": query,
+                "list_time": list_time_ts
             })
     except Exception as e:
         logging.error(f"Ошибка при парсинге Куфара ({query}): {e}")
@@ -134,7 +160,8 @@ def check_kufar_loop():
 
     while True:
         subscribers = get_all_subscribers()
-        logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)}. Увиденных: {len(seen_ads)} ===")
+        start_time = get_start_time()
+        logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)}. Увиденных: {len(seen_ads)}. Start_time: {start_time} ===")
 
         try:
             total_sent = 0
@@ -142,32 +169,40 @@ def check_kufar_loop():
                 ads = fetch_kufar_ads(query)
                 for ad in ads:
                     ad_id = ad["id"]
-                    if ad_id not in seen_ads:
-                        seen_ads.add(ad_id)
-                        save_data(SEEN_ADS_FILE, list(seen_ads))
-                        logging.info(f"НОВОЕ: {ad['title']} | {ad['price']}")
-                        
-                        if subscribers:
-                            # === УБРАЛИ Markdown и звёздочки ===
-                            message_text = (
-                                f"❄️ Новое объявление в Минске [{ad['query']}]\n\n"
-                                f"📌 {ad['title']}\n"
-                                f"💰 Цена: {ad['price']}\n"
-                                f"📍 Город: Минск\n"
-                                f"👤 Продавец: Частное лицо (б/у)\n\n"
-                                f"🔗 Открыть на Kufar: {ad['link']}"
-                            )
-                            
-                            for user_id in list(subscribers):
-                                try:
-                                    # === УБРАЛИ parse_mode ===
-                                    bot.send_message(user_id, message_text)
-                                    logging.info(f"-> ✅ УСПЕШНО отправлено {user_id}")
-                                    total_sent += 1
-                                except Exception as err:
-                                    logging.error(f"-> ❌ ОШИБКА отправки {user_id}: {err}")
-                    else:
+                    ad_time = ad.get("list_time", 0)
+                    
+                    # 1. Пропускаем объявления старше времени /start
+                    if ad_time <= start_time:
+                        logging.info(f"  (старое, до /start) {ad['title']}")
+                        continue
+                    
+                    # 2. Пропускаем уже увиденные
+                    if ad_id in seen_ads:
                         logging.info(f"  (уже видели) {ad['title']}")
+                        continue
+                    
+                    # 3. Отправляем
+                    seen_ads.add(ad_id)
+                    save_data(SEEN_ADS_FILE, list(seen_ads))
+                    logging.info(f"НОВОЕ: {ad['title']} | {ad['price']}")
+                    
+                    if subscribers:
+                        message_text = (
+                            f"❄️ Новое объявление в Минске [{ad['query']}]\n\n"
+                            f"📌 {ad['title']}\n"
+                            f"💰 Цена: {ad['price']}\n"
+                            f"📍 Город: Минск\n"
+                            f"👤 Продавец: Частное лицо (б/у)\n\n"
+                            f"🔗 Открыть на Kufar: {ad['link']}"
+                        )
+                        
+                        for user_id in list(subscribers):
+                            try:
+                                bot.send_message(user_id, message_text)
+                                logging.info(f"-> ✅ УСПЕШНО отправлено {user_id}")
+                                total_sent += 1
+                            except Exception as err:
+                                logging.error(f"-> ❌ ОШИБКА отправки {user_id}: {err}")
                 time.sleep(2)
             
             logging.info(f"=== ЦИКЛ ЗАВЕРШЕН. Отправлено новых: {total_sent} ===")
@@ -179,15 +214,17 @@ def check_kufar_loop():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.chat.id
+    set_start_time()  # Запоминаем время /start
+    
     subs = set(load_data(USERS_FILE, []))
     subs.add(user_id)
     save_data(USERS_FILE, list(subs))
     logging.info(f"Новый подписчик: {user_id}. Всего в файле: {len(subs)}")
     
-    # === Без Markdown ===
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
         f"Вы успешно подписались на уведомления о б/у зимних шинах в г. Минске.\n\n"
+        f"⚠️ ВАЖНО: Вы будете получать только те объявления, которые появятся ПОСЛЕ этой команды.\n\n"
         f"🔍 Отслеживаемые размеры:\n"
         f"• 205/55 R16\n• 195/65 R15\n• 205/65 R16\n• 185/65 R15\n\n"
         f"💰 Максимальная цена: {MAX_PRICE_BYN} BYN\n"
@@ -211,14 +248,16 @@ def stop_subscription(message):
 def status_info(message):
     subs = get_all_subscribers()
     seen = set(load_data(SEEN_ADS_FILE, []))
-    # === Без Markdown ===
+    start_time = get_start_time()
+    start_time_str = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S") if start_time else "не задано"
     text = (
         f"📊 Статус бота:\n"
         f"📍 Регион: г. Минск\n"
         f"👥 Подписчиков: {len(subs)}\n"
         f"📦 Увиденных объявлений: {len(seen)}\n"
         f"💰 Макс. цена: {MAX_PRICE_BYN} BYN\n"
-        f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
+        f"⏱ Проверка каждые: {CHECK_INTERVAL} сек.\n"
+        f"🕐 Время /start: {start_time_str}"
     )
     bot.reply_to(message, text)
 
