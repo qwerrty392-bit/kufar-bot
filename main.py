@@ -58,7 +58,7 @@ def get_all_subscribers():
     all_subs.update(file_subs)
     return all_subs
 
-# --- 2. ПАРСИНГ KUFAR ---
+# --- 2. ПАРСИНГ KUFAR (ФИЛЬТРЫ ОТКЛЮЧЕНЫ) ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
@@ -88,27 +88,25 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # === ФИЛЬТРЫ (включены) ===
-            if ad.get("company_ad", False):
-                continue
+            # === ВСЕ ФИЛЬТРЫ ОТКЛЮЧЕНЫ ===
+            # if ad.get("company_ad", False):
+            #     continue
 
             title = ad.get("subject", "Шины")
-            params_list = ad.get("ad_parameters", [])
-            all_text = title.lower()
-            for p in params_list:
-                all_text += " " + str(p.get("pl", "")).lower()
-                all_text += " " + str(p.get("vl", "")).lower()
+            # params_list = ad.get("ad_parameters", [])
+            # all_text = title.lower()
+            # for p in params_list:
+            #     all_text += " " + str(p.get("pl", "")).lower()
+            #     all_text += " " + str(p.get("vl", "")).lower()
 
-            if "новое" in all_text or "нов." in all_text:
-                continue
-            if "летн" in all_text and "зим" not in all_text:
-                continue
+            # if "новое" in all_text or "нов." in all_text:
+            #     continue
+            # if "летн" in all_text and "зим" not in all_text:
+            #     continue
 
             price_byn = ad.get("price_byn", "0")
             try:
                 price_int = int(price_byn) // 100
-                if price_int > MAX_PRICE_BYN:
-                    continue
                 price = f"{price_int} BYN"
             except:
                 price = "Цена не указана"
@@ -132,7 +130,6 @@ def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
 
     while True:
-        # === ТЕСТОВОЕ СООБЩЕНИЕ ПРИ КАЖДОМ ЦИКЛЕ ===
         try:
             bot.send_message(MY_TELEGRAM_ID, "🧪 ТЕСТ: Бот начинает сканирование!")
             logging.info("✅ ТЕСТОВОЕ сообщение отправлено")
@@ -147,16 +144,14 @@ def check_kufar_loop():
             for query in SEARCH_QUERIES:
                 ads = fetch_kufar_ads(query)
                 for ad in ads:
-                    # === БЕЗ ПРОВЕРКИ seen_ads — ОТПРАВЛЯЕМ ВСЁ ===
-                    logging.info(f"Найдено подходящее: {ad['title']} | Подписчиков: {len(subscribers)}")
+                    logging.info(f"Найдено подходящее: {ad['title']} | Цена: {ad['price']}")
                     
                     if subscribers:
                         message_text = (
-                            f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
+                            f"❄️ **Объявление в Минске [{ad['query']}]**\n\n"
                             f"📌 **{ad['title']}**\n"
                             f"💰 **Цена:** {ad['price']}\n"
-                            f"📍 **Город:** Минск\n"
-                            f"👤 **Продавец:** Частное лицо (б/у)\n\n"
+                            f"📍 **Город:** Минск\n\n"
                             f"🔗 [Открыть на Kufar]({ad['link']})"
                         )
                         
@@ -192,10 +187,8 @@ def send_welcome(message):
     queries_str = "\n".join([f"• `{q}`" for q in SEARCH_QUERIES])
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
-        f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске**.\n\n"
+        f"Вы успешно **подписались** на уведомления.\n\n"
         f"🔍 **Отслеживаемые размеры:**\n{queries_str}\n\n"
-        f"💰 **Максимальная цена:** {MAX_PRICE_BYN} BYN\n"
-        f"👤 **Только частные лица**\n\n"
         f"Бот проверяет Kufar каждые 5 минут!"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
@@ -218,7 +211,6 @@ def status_info(message):
         f"📊 **Статус бота:**\n"
         f"📍 Регион: г. Минск\n"
         f"👥 Подписчиков: {len(subs)}\n"
-        f"💰 Макс. цена: {MAX_PRICE_BYN} BYN\n"
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
     )
     bot.reply_to(message, text, parse_mode="Markdown")
