@@ -12,7 +12,7 @@ from telebot import types
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
+BOT_TOKEN = "8753909204:AAHH9FoRc3HF7e-R96OPqwpMIB8e2Hl7_M4"
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
 
 SEARCH_QUERIES = [
@@ -117,25 +117,28 @@ def fetch_kufar_ads(query):
 
 # --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
+    global subscribers  # <-- ВАЖНО: используем глобальную переменную
     logging.info("Сканер Куфара запущен...")
 
     while True:
-        # ПРИНУДИТЕЛЬНАЯ ОЧИСТКА БАЗЫ ПЕРЕД КАЖДЫМ СКАНИРОВАНИЕМ
-        seen_ads = set()
+        # ПРИНУДИТЕЛЬНАЯ ОЧИСТКА БАЗЫ
+        seen_ads_local = set()
         save_data(SEEN_ADS_FILE, [])
         
         # ПРИНУДИТЕЛЬНАЯ ПЕРЕЧИТКА ПОДПИСЧИКОВ
         subscribers = set(load_data(USERS_FILE, []))
-        logging.info(f"Подписчиков: {len(subscribers)}. База объявлений очищена.")
+        logging.info(f"=== ЦИКЛ: Подписчиков: {len(subscribers)}. База очищена. ===")
 
         try:
             for query in SEARCH_QUERIES:
                 ads = fetch_kufar_ads(query)
                 for ad in ads:
                     ad_id = ad["id"]
-                    if ad_id not in seen_ads:
-                        seen_ads.add(ad_id)
-                        save_data(SEEN_ADS_FILE, list(seen_ads))
+                    if ad_id not in seen_ads_local:
+                        seen_ads_local.add(ad_id)
+                        save_data(SEEN_ADS_FILE, list(seen_ads_local))
+                        
+                        logging.info(f"Новое объявление: {ad['title']} | Подписчиков: {len(subscribers)}")
                         
                         if subscribers:
                             message_text = (
@@ -149,13 +152,13 @@ def check_kufar_loop():
                             
                             for user_id in list(subscribers):
                                 try:
-                                    logging.info(f"ПОПЫТКА отправки {user_id}: {ad['title']}")
+                                    logging.info(f"-> ПОПЫТКА отправки {user_id}")
                                     bot.send_message(user_id, message_text, parse_mode="Markdown")
-                                    logging.info(f"✅ УСПЕШНО отправлено {user_id}: {ad['title']}")
+                                    logging.info(f"-> ✅ УСПЕШНО отправлено {user_id}")
                                 except Exception as err:
-                                    logging.error(f"❌ ОШИБКА отправки {user_id}: {err}")
+                                    logging.error(f"-> ❌ ОШИБКА отправки {user_id}: {err}")
                         else:
-                            logging.warning(f"❌ Нет подписчиков для отправки: {ad['title']}")
+                            logging.warning(f"-> ❌ Нет подписчиков для отправки")
                 
                 time.sleep(2)
 
