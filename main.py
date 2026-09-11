@@ -55,7 +55,6 @@ def save_data(filename, data):
         logging.error(f"Ошибка сохранения {filename}: {e}")
 
 def get_all_subscribers():
-    """Возвращает множество всех подписчиков (постоянные из кода + из файла)."""
     all_subs = {MY_TELEGRAM_ID}
     if SECOND_TELEGRAM_ID:
         all_subs.add(SECOND_TELEGRAM_ID)
@@ -91,7 +90,6 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # 1. Только частные лица
             if ad.get("company_ad", False):
                 continue
 
@@ -102,15 +100,11 @@ def fetch_kufar_ads(query):
                 all_text += " " + str(p.get("pl", "")).lower()
                 all_text += " " + str(p.get("vl", "")).lower()
 
-            # 2. Б/У (исключаем новое)
             if "новое" in all_text or "нов." in all_text:
                 continue
-
-            # 3. Только зимние (исключаем летние)
             if "летн" in all_text and "зим" not in all_text:
                 continue
 
-            # 4. Цена до 200 BYN
             price_byn = ad.get("price_byn", "0")
             try:
                 price_int = int(price_byn) // 100
@@ -137,6 +131,7 @@ def fetch_kufar_ads(query):
 # --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
+    # Загружаем базу УЖЕ УВИДЕННЫХ объявлений
     seen_ads = set(load_data(SEEN_ADS_FILE, []))
 
     while True:
@@ -149,6 +144,7 @@ def check_kufar_loop():
                 ads = fetch_kufar_ads(query)
                 for ad in ads:
                     ad_id = ad["id"]
+                    # === ПРОВЕРКА: отправляем ТОЛЬКО НОВЫЕ объявления ===
                     if ad_id not in seen_ads:
                         seen_ads.add(ad_id)
                         save_data(SEEN_ADS_FILE, list(seen_ads))
@@ -171,6 +167,8 @@ def check_kufar_loop():
                                     total_sent += 1
                                 except Exception as err:
                                     logging.error(f"-> ❌ ОШИБКА отправки {user_id}: {err}")
+                    else:
+                        logging.info(f"  (уже видели) {ad['title']}")
                 time.sleep(2)
             
             logging.info(f"=== ЦИКЛ ЗАВЕРШЕН. Отправлено новых: {total_sent} ===")
