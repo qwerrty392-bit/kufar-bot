@@ -17,7 +17,14 @@ MY_TELEGRAM_ID = 545995986
 BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
 
-SEARCH_QUERIES = ["205/55 R16", "195/65 R15", "205/65 R16", "185/65 R15"]
+# === ИЗМЕНЕНО: добавили слово "шины" в запросы ===
+SEARCH_QUERIES = [
+    "205/55 R16 шины",
+    "195/65 R15 шины",
+    "205/65 R16 шины",
+    "185/65 R15 шины"
+]
+
 CHECK_INTERVAL = 300
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
@@ -49,8 +56,8 @@ def get_all_subscribers():
 
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
+    # === ИЗМЕНЕНО: убрали "cat" (категория не работает), добавили "query" со словом "шины" ===
     params = {
-        "cat": "2010",
         "query": query,
         "lang": "ru",
         "size": "50",
