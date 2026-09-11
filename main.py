@@ -15,7 +15,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # ============================================================
 MY_TELEGRAM_ID = 545995986       # <-- Ваш основной ID
 SECOND_TELEGRAM_ID = None         # <-- Вставьте сюда второй ID (например: 123456789)
-                                   #     Если второго нет — оставьте None
 # ============================================================
 
 # --- КОНФИГУРАЦИЯ ---
@@ -29,7 +28,7 @@ SEARCH_QUERIES = [
     "185/65 R15 шины"
 ]
 
-CHECK_INTERVAL = 300  # 5 минут
+CHECK_INTERVAL = 300
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
 MAX_PRICE_BYN = 200
@@ -131,7 +130,6 @@ def fetch_kufar_ads(query):
 # --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
-    # Загружаем базу УЖЕ УВИДЕННЫХ объявлений
     seen_ads = set(load_data(SEEN_ADS_FILE, []))
 
     while True:
@@ -144,25 +142,26 @@ def check_kufar_loop():
                 ads = fetch_kufar_ads(query)
                 for ad in ads:
                     ad_id = ad["id"]
-                    # === ПРОВЕРКА: отправляем ТОЛЬКО НОВЫЕ объявления ===
                     if ad_id not in seen_ads:
                         seen_ads.add(ad_id)
                         save_data(SEEN_ADS_FILE, list(seen_ads))
                         logging.info(f"НОВОЕ: {ad['title']} | {ad['price']}")
                         
                         if subscribers:
+                            # === УБРАЛИ Markdown и звёздочки ===
                             message_text = (
-                                f"❄️ **Новое объявление в Минске [{ad['query']}]**\n\n"
-                                f"📌 **{ad['title']}**\n"
-                                f"💰 **Цена:** {ad['price']}\n"
-                                f"📍 **Город:** Минск\n"
-                                f"👤 **Продавец:** Частное лицо (б/у)\n\n"
-                                f"🔗 [Открыть на Kufar]({ad['link']})"
+                                f"❄️ Новое объявление в Минске [{ad['query']}]\n\n"
+                                f"📌 {ad['title']}\n"
+                                f"💰 Цена: {ad['price']}\n"
+                                f"📍 Город: Минск\n"
+                                f"👤 Продавец: Частное лицо (б/у)\n\n"
+                                f"🔗 Открыть на Kufar: {ad['link']}"
                             )
                             
                             for user_id in list(subscribers):
                                 try:
-                                    bot.send_message(user_id, message_text, parse_mode="Markdown")
+                                    # === УБРАЛИ parse_mode ===
+                                    bot.send_message(user_id, message_text)
                                     logging.info(f"-> ✅ УСПЕШНО отправлено {user_id}")
                                     total_sent += 1
                                 except Exception as err:
@@ -185,16 +184,17 @@ def send_welcome(message):
     save_data(USERS_FILE, list(subs))
     logging.info(f"Новый подписчик: {user_id}. Всего в файле: {len(subs)}")
     
+    # === Без Markdown ===
     text = (
         f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
-        f"Вы успешно **подписались** на уведомления о б/у зимних шинах в **г. Минске**.\n\n"
-        f"🔍 **Отслеживаемые размеры:**\n"
+        f"Вы успешно подписались на уведомления о б/у зимних шинах в г. Минске.\n\n"
+        f"🔍 Отслеживаемые размеры:\n"
         f"• 205/55 R16\n• 195/65 R15\n• 205/65 R16\n• 185/65 R15\n\n"
-        f"💰 **Максимальная цена:** {MAX_PRICE_BYN} BYN\n"
-        f"👤 **Только частные лица**\n\n"
+        f"💰 Максимальная цена: {MAX_PRICE_BYN} BYN\n"
+        f"👤 Только частные лица\n\n"
         f"Бот проверяет Kufar каждые 5 минут!"
     )
-    bot.reply_to(message, text, parse_mode="Markdown")
+    bot.reply_to(message, text)
 
 @bot.message_handler(commands=['stop'])
 def stop_subscription(message):
@@ -211,15 +211,16 @@ def stop_subscription(message):
 def status_info(message):
     subs = get_all_subscribers()
     seen = set(load_data(SEEN_ADS_FILE, []))
+    # === Без Markdown ===
     text = (
-        f"📊 **Статус бота:**\n"
+        f"📊 Статус бота:\n"
         f"📍 Регион: г. Минск\n"
         f"👥 Подписчиков: {len(subs)}\n"
         f"📦 Увиденных объявлений: {len(seen)}\n"
         f"💰 Макс. цена: {MAX_PRICE_BYN} BYN\n"
         f"⏱ Проверка каждые: {CHECK_INTERVAL} сек."
     )
-    bot.reply_to(message, text, parse_mode="Markdown")
+    bot.reply_to(message, text)
 
 # --- 5. ВЕБХУК ---
 @app.route(f"/{BOT_TOKEN}", methods=['POST'])
