@@ -14,33 +14,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # ============================================================
 # --- ВАШИ TELEGRAM ID ---
 # ============================================================
-MY_TELEGRAM_ID = 545995986        # <-- Ваш основной ID
-SECOND_TELEGRAM_ID = 1144833390    # <-- Второй ID
+MY_TELEGRAM_ID = 545995986
+SECOND_TELEGRAM_ID = 1144833390
 # ============================================================
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
 
-# ============================================================
-# --- РАЗМЕРЫ ШИН (все, что отслеживаем) ---
-# ============================================================
 SEARCH_QUERIES = [
-    # Старые размеры
     "205/55 R16 шины",
     "195/65 R15 шины",
     "205/65 R16 шины",
     "185/65 R15 шины",
-    # Новые размеры
     "205/60 R16 шины",
     "215/65 R16 шины",
     "195/55 R16 шины",
     "195/60 R16 шины",
     "185/60 R15 шины"
 ]
-# ============================================================
 
-CHECK_INTERVAL = 300       # 5 минут
+CHECK_INTERVAL = 300
 USERS_FILE = "subscribers.json"
 SEEN_ADS_FILE = "seen_ads.json"
 START_TIME_FILE = "start_time.json"
@@ -49,7 +43,6 @@ MAX_PRICE_BYN = 200
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# --- 1. ХРАНИЛИЩЕ ДАННЫХ ---
 def load_data(filename, default):
     if os.path.exists(filename):
         try:
@@ -79,13 +72,12 @@ def set_start_time():
     save_data(START_TIME_FILE, {"time": int(time.time())})
     logging.info(f"Время /start обновлено: {int(time.time())}")
 
-# --- 2. ПАРСИНГ KUFAR ---
 def fetch_kufar_ads(query):
     url = "https://cre-api.kufar.by/ads-search/v1/engine/v1/search/rendered-paginated"
     params = {
         "query": query,
         "lang": "ru",
-        "size": "200",       # <-- УВЕЛИЧЕНО С 50 ДО 200
+        "size": "200",
         "cmp": "0",
         "rgn": "7",
         "sort": "lst.d"
@@ -108,7 +100,6 @@ def fetch_kufar_ads(query):
         for ad in ads:
             ad_id = str(ad.get("ad_id"))
             
-            # 1. Только частные лица
             if ad.get("company_ad", False):
                 continue
 
@@ -119,15 +110,11 @@ def fetch_kufar_ads(query):
                 all_text += " " + str(p.get("pl", "")).lower()
                 all_text += " " + str(p.get("vl", "")).lower()
 
-            # 2. Б/У (исключаем новое)
             if "новое" in all_text or "нов." in all_text:
                 continue
-
-            # 3. Только зимние
             if "летн" in all_text and "зим" not in all_text:
                 continue
 
-            # 4. Цена до 200 BYN
             price_byn = ad.get("price_byn", "0")
             try:
                 price_int = int(price_byn) // 100
@@ -139,7 +126,6 @@ def fetch_kufar_ads(query):
 
             ad_link = ad.get("ad_link", f"https://www.kufar.by/item/{ad_id}")
             
-            # 5. Время публикации
             list_time_str = ad.get("list_time", "")
             list_time_ts = 0
             try:
@@ -161,12 +147,10 @@ def fetch_kufar_ads(query):
 
     return found_ads
 
-# --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
     seen_ads = set(load_data(SEEN_ADS_FILE, []))
     
-    # При первом запуске запоминаем все текущие объявления
     if len(seen_ads) == 0:
         logging.info("Первый запуск: запоминаем все текущие объявления...")
         for query in SEARCH_QUERIES:
@@ -226,11 +210,14 @@ def check_kufar_loop():
             logging.error(f"Ошибка сканера: {e}")
         time.sleep(CHECK_INTERVAL)
 
-# --- 4. КОМАНДЫ БОТА ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.chat.id
     set_start_time()
+    
+    # ОЧИЩАЕМ БАЗУ УВИДЕННЫХ ОБЪЯВЛЕНИЙ ПРИ /start
+    save_data(SEEN_ADS_FILE, [])
+    logging.info("База seen_ads очищена при /start")
     
     subs = set(load_data(USERS_FILE, []))
     subs.add(user_id)
@@ -278,7 +265,6 @@ def status_info(message):
     )
     bot.reply_to(message, text)
 
-# --- 5. ВЕБХУК ---
 @app.route(f"/{BOT_TOKEN}", methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -293,7 +279,6 @@ def webhook():
 def index():
     return "Telegram Bot is active!", 200
 
-# --- 6. ЗАПУСК ---
 if __name__ == "__main__":
     try:
         bot.remove_webhook()
