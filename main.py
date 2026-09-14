@@ -67,18 +67,15 @@ def save_data(filename, data):
         logging.error(f"Ошибка сохранения {filename}: {e}")
 
 def get_all_subscribers():
-    """Возвращает множество всех подписчиков (из кода + из файла)."""
     all_subs = {MY_TELEGRAM_ID, SECOND_TELEGRAM_ID}
     all_subs.update(set(load_data(USERS_FILE, [])))
     return all_subs
 
 def get_start_time():
-    """Возвращает timestamp последнего нажатия /start."""
     data = load_data(START_TIME_FILE, {"time": 0})
     return data.get("time", 0)
 
 def set_start_time():
-    """Сохраняет текущее время как время /start."""
     save_data(START_TIME_FILE, {"time": int(time.time())})
     logging.info(f"Время /start обновлено: {int(time.time())}")
 
@@ -88,7 +85,7 @@ def fetch_kufar_ads(query):
     params = {
         "query": query,
         "lang": "ru",
-        "size": "50",
+        "size": "200",       # <-- УВЕЛИЧЕНО С 50 ДО 200
         "cmp": "0",
         "rgn": "7",
         "sort": "lst.d"
@@ -142,7 +139,7 @@ def fetch_kufar_ads(query):
 
             ad_link = ad.get("ad_link", f"https://www.kufar.by/item/{ad_id}")
             
-            # 5. Время публикации объявления
+            # 5. Время публикации
             list_time_str = ad.get("list_time", "")
             list_time_ts = 0
             try:
@@ -167,9 +164,9 @@ def fetch_kufar_ads(query):
 # --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
-
-    # === ПРИ ПЕРВОМ ЗАПУСКЕ: запоминаем все текущие объявления как "увиденные" ===
     seen_ads = set(load_data(SEEN_ADS_FILE, []))
+    
+    # При первом запуске запоминаем все текущие объявления
     if len(seen_ads) == 0:
         logging.info("Первый запуск: запоминаем все текущие объявления...")
         for query in SEARCH_QUERIES:
