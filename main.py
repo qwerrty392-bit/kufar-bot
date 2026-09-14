@@ -22,12 +22,23 @@ SECOND_TELEGRAM_ID = 1144833390    # <-- Второй ID
 BOT_TOKEN = "8753909204:AAH1Fi8Fj4-cbdxfc34_xyR7nT2J2KUgxJk"
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kufar-bot-vpkb.onrender.com")
 
+# ============================================================
+# --- РАЗМЕРЫ ШИН (все, что отслеживаем) ---
+# ============================================================
 SEARCH_QUERIES = [
+    # Старые размеры
     "205/55 R16 шины",
     "195/65 R15 шины",
     "205/65 R16 шины",
-    "185/65 R15 шины"
+    "185/65 R15 шины",
+    # Новые размеры
+    "205/60 R16 шины",
+    "215/65 R16 шины",
+    "195/55 R16 шины",
+    "195/60 R16 шины",
+    "185/60 R15 шины"
 ]
+# ============================================================
 
 CHECK_INTERVAL = 300       # 5 минут
 USERS_FILE = "subscribers.json"
@@ -156,7 +167,17 @@ def fetch_kufar_ads(query):
 # --- 3. ФОНОВОЕ СКАНИРОВАНИЕ ---
 def check_kufar_loop():
     logging.info("Сканер Куфара запущен...")
+
+    # === ПРИ ПЕРВОМ ЗАПУСКЕ: запоминаем все текущие объявления как "увиденные" ===
     seen_ads = set(load_data(SEEN_ADS_FILE, []))
+    if len(seen_ads) == 0:
+        logging.info("Первый запуск: запоминаем все текущие объявления...")
+        for query in SEARCH_QUERIES:
+            ads = fetch_kufar_ads(query)
+            for ad in ads:
+                seen_ads.add(ad["id"])
+        save_data(SEEN_ADS_FILE, list(seen_ads))
+        logging.info(f"Запомнено {len(seen_ads)} объявлений при первом запуске")
 
     while True:
         subscribers = get_all_subscribers()
@@ -173,15 +194,13 @@ def check_kufar_loop():
                     
                     # 1. Пропускаем объявления старше времени /start
                     if ad_time <= start_time:
-                        logging.info(f"  (старое, до /start) {ad['title']}")
                         continue
                     
                     # 2. Пропускаем уже увиденные
                     if ad_id in seen_ads:
-                        logging.info(f"  (уже видели) {ad['title']}")
                         continue
                     
-                    # 3. Отправляем
+                    # 3. Отправляем только новые
                     seen_ads.add(ad_id)
                     save_data(SEEN_ADS_FILE, list(seen_ads))
                     logging.info(f"НОВОЕ: {ad['title']} | {ad['price']}")
@@ -214,7 +233,7 @@ def check_kufar_loop():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.chat.id
-    set_start_time()  # Запоминаем время /start
+    set_start_time()
     
     subs = set(load_data(USERS_FILE, []))
     subs.add(user_id)
@@ -226,7 +245,8 @@ def send_welcome(message):
         f"Вы успешно подписались на уведомления о б/у зимних шинах в г. Минске.\n\n"
         f"⚠️ ВАЖНО: Вы будете получать только те объявления, которые появятся ПОСЛЕ этой команды.\n\n"
         f"🔍 Отслеживаемые размеры:\n"
-        f"• 205/55 R16\n• 195/65 R15\n• 205/65 R16\n• 185/65 R15\n\n"
+        f"• 205/55 R16\n• 195/65 R15\n• 205/65 R16\n• 185/65 R15\n"
+        f"• 205/60 R16\n• 215/65 R16\n• 195/55 R16\n• 195/60 R16\n• 185/60 R15\n\n"
         f"💰 Максимальная цена: {MAX_PRICE_BYN} BYN\n"
         f"👤 Только частные лица\n\n"
         f"Бот проверяет Kufar каждые 5 минут!"
